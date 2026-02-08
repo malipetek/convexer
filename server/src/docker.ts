@@ -36,6 +36,24 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     const isLinux = process.platform === 'linux';
     const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
 
+    // Build backend env vars
+    const backendEnv = [
+      `CONVEX_INSTANCE_NAME=${instance.instance_name}`,
+      `CONVEX_INSTANCE_SECRET=${instance.instance_secret}`,
+      `INSTANCE_NAME=${instance.instance_name}`,
+      `INSTANCE_SECRET=${instance.instance_secret}`,
+    ];
+
+    // When tunnel is enabled, tell the backend its public URLs
+    // so it can accept WebSocket connections from the tunnel hostname
+    if (isTunnelEnabled()) {
+      const hostnames = getInstanceHostnames(instance);
+      backendEnv.push(
+        `CONVEX_CLOUD_ORIGIN=https://${hostnames.backend}`,
+        `CONVEX_SITE_ORIGIN=https://${hostnames.site}`,
+      );
+    }
+
     // Create and start backend container
     const backendContainer = await docker.createContainer({
       Image: BACKEND_IMAGE,
@@ -50,12 +68,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         RestartPolicy: { Name: 'unless-stopped' },
         ExtraHosts: extraHosts,
       },
-      Env: [
-        `CONVEX_INSTANCE_NAME=${instance.instance_name}`,
-        `CONVEX_INSTANCE_SECRET=${instance.instance_secret}`,
-        `INSTANCE_NAME=${instance.instance_name}`,
-        `INSTANCE_SECRET=${instance.instance_secret}`,
-      ],
+      Env: backendEnv,
     });
 
     await backendContainer.start();
