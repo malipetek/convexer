@@ -33,6 +33,9 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     // Create volume
     await docker.createVolume({ Name: volumeName });
 
+    const isLinux = process.platform === 'linux';
+    const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
+
     // Create and start backend container
     const backendContainer = await docker.createContainer({
       Image: BACKEND_IMAGE,
@@ -45,6 +48,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         },
         Binds: [`${volumeName}:/convex/data`],
         RestartPolicy: { Name: 'unless-stopped' },
+        ExtraHosts: extraHosts,
       },
       Env: [
         `CONVEX_INSTANCE_NAME=${instance.instance_name}`,
@@ -74,6 +78,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
           '6791/tcp': [{ HostPort: String(instance.dashboard_port) }],
         },
         RestartPolicy: { Name: 'unless-stopped' },
+        ExtraHosts: extraHosts,
       },
       Env: [
         `CONVEX_PROVISION_HOST=http://host.docker.internal:${instance.backend_port}`,
@@ -81,8 +86,6 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         `NEXT_PUBLIC_PROVISION_HOST=http://localhost:${instance.backend_port}`,
         `NEXT_PUBLIC_SITE_PROXY_HOST=http://localhost:${instance.site_proxy_port}`,
       ],
-      // Allow connecting to host
-      ...(process.platform === 'linux' ? { HostConfig: { ...({} as any), NetworkMode: 'host' } } : {}),
     });
 
     await dashboardContainer.start();
