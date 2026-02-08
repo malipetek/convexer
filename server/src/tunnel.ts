@@ -33,9 +33,34 @@ function writeConfig(config: CloudflaredConfig): void {
   fs.writeFileSync(CLOUDFLARED_CONFIG, content, 'utf-8');
 }
 
+function getTunnelName(): string {
+  const config = readConfig();
+  return config.tunnel || '';
+}
+
+function addDnsRecord(hostname: string): void {
+  const tunnel = getTunnelName();
+  if (!tunnel) {
+    console.warn('No tunnel name in config, skipping DNS record');
+    return;
+  }
+  try {
+    execSync(`cloudflared tunnel route dns ${tunnel} ${hostname}`, { stdio: 'pipe' });
+    console.log(`DNS record added: ${hostname}`);
+  } catch (err: any) {
+    const stderr = err.stderr?.toString() || '';
+    // Already exists is fine
+    if (stderr.includes('already exists')) {
+      console.log(`DNS record already exists: ${hostname}`);
+    } else {
+      console.warn(`Failed to add DNS record for ${hostname}: ${stderr}`);
+    }
+  }
+}
+
 function applyAndRestart(): void {
-  execSync(`sudo cp ${CLOUDFLARED_CONFIG} ${SYSTEM_CONFIG}`);
-  execSync('sudo systemctl restart cloudflared');
+  execSync(`sudo /bin/cp ${CLOUDFLARED_CONFIG} ${SYSTEM_CONFIG}`);
+  execSync('sudo /bin/systemctl restart cloudflared');
 }
 
 export function getTunnelDomain(): string {
@@ -84,6 +109,12 @@ export function addTunnelRoutes(instance: Instance): void {
   config.ingress.push(catchAll);
 
   writeConfig(config);
+
+  // Add DNS CNAME records pointing to the tunnel
+  addDnsRecord(hostnames.backend);
+  addDnsRecord(hostnames.dashboard);
+
+  // Copy config and restart cloudflared service
   applyAndRestart();
   console.log(`Tunnel routes added: ${hostnames.backend}, ${hostnames.dashboard}`);
 }
