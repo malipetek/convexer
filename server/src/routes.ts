@@ -15,6 +15,7 @@ function withTunnel(instance: Instance) {
   return {
     ...instance,
     tunnel_backend: `https://${hostnames.backend}`,
+    tunnel_site: `https://${hostnames.site}`,
     tunnel_dashboard: `https://${hostnames.dashboard}`,
   };
 }
@@ -98,22 +99,44 @@ router.post('/instances/:id/stop', async (req: Request, res: Response) => {
   }
 });
 
-// Delete instance
+// Soft delete — remove from DB only, leave containers running
+router.post('/instances/:id/forget', (req: Request, res: Response) => {
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+  deleteInstance(instance.id);
+  res.status(204).send();
+});
+
+// Full delete — remove containers, volumes, tunnel routes, and DB row
 router.delete('/instances/:id', async (req: Request, res: Response) => {
   const instance = getInstance(req.params.id as string);
   if (!instance) {
     res.status(404).json({ error: 'Instance not found' });
     return;
   }
-  try {
-    await removeInstance(instance);
-    try { removeTunnelRoutes(instance); } catch (err: any) {
-      console.warn(`Failed to remove tunnel routes:`, err.message);
-    }
-    deleteInstance(instance.id);
+
+  const errors: string[] = [];
+
+  // Each step is best-effort so delete always completes
+  try { await removeInstance(instance); } catch (err: any) {
+    console.warn(`Failed to remove containers:`, err.message);
+    errors.push(`containers: ${err.message}`);
+  }
+
+  try { removeTunnelRoutes(instance); } catch (err: any) {
+    console.warn(`Failed to remove tunnel routes:`, err.message);
+    errors.push(`tunnel: ${err.message}`);
+  }
+
+  deleteInstance(instance.id);
+
+  if (errors.length) {
+    res.json({ deleted: true, warnings: errors });
+  } else {
     res.status(204).send();
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
   }
 });
 

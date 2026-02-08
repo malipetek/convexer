@@ -49,7 +49,6 @@ function addDnsRecord(hostname: string): void {
     console.log(`DNS record added: ${hostname}`);
   } catch (err: any) {
     const stderr = err.stderr?.toString() || '';
-    // Already exists is fine
     if (stderr.includes('already exists')) {
       console.log(`DNS record already exists: ${hostname}`);
     } else {
@@ -71,9 +70,10 @@ export function isTunnelEnabled(): boolean {
   return !!TUNNEL_DOMAIN && fs.existsSync(CLOUDFLARED_CONFIG);
 }
 
-export function getInstanceHostnames(instance: Instance): { backend: string; dashboard: string } {
+export function getInstanceHostnames(instance: Instance): { backend: string; site: string; dashboard: string } {
   return {
     backend: `${instance.name}.${TUNNEL_DOMAIN}`,
+    site: `${instance.name}-site.${TUNNEL_DOMAIN}`,
     dashboard: `${instance.name}-dash.${TUNNEL_DOMAIN}`,
   };
 }
@@ -89,13 +89,19 @@ export function addTunnelRoutes(instance: Instance): void {
   // Remove catch-all (last rule), add our rules, put catch-all back
   const catchAll = config.ingress.pop()!;
 
-  // Only add if not already present
   const existing = new Set(config.ingress.map(r => r.hostname));
 
   if (!existing.has(hostnames.backend)) {
     config.ingress.push({
       hostname: hostnames.backend,
       service: `http://localhost:${instance.backend_port}`,
+    });
+  }
+
+  if (!existing.has(hostnames.site)) {
+    config.ingress.push({
+      hostname: hostnames.site,
+      service: `http://localhost:${instance.site_proxy_port}`,
     });
   }
 
@@ -110,13 +116,12 @@ export function addTunnelRoutes(instance: Instance): void {
 
   writeConfig(config);
 
-  // Add DNS CNAME records pointing to the tunnel
   addDnsRecord(hostnames.backend);
+  addDnsRecord(hostnames.site);
   addDnsRecord(hostnames.dashboard);
 
-  // Copy config and restart cloudflared service
   applyAndRestart();
-  console.log(`Tunnel routes added: ${hostnames.backend}, ${hostnames.dashboard}`);
+  console.log(`Tunnel routes added: ${hostnames.backend}, ${hostnames.site}, ${hostnames.dashboard}`);
 }
 
 export function removeTunnelRoutes(instance: Instance): void {
@@ -126,11 +131,11 @@ export function removeTunnelRoutes(instance: Instance): void {
   if (!config.ingress) return;
 
   const hostnames = getInstanceHostnames(instance);
-  const toRemove = new Set([hostnames.backend, hostnames.dashboard]);
+  const toRemove = new Set([hostnames.backend, hostnames.site, hostnames.dashboard]);
 
   config.ingress = config.ingress.filter(rule => !rule.hostname || !toRemove.has(rule.hostname));
 
   writeConfig(config);
   applyAndRestart();
-  console.log(`Tunnel routes removed: ${hostnames.backend}, ${hostnames.dashboard}`);
+  console.log(`Tunnel routes removed: ${hostnames.backend}, ${hostnames.site}, ${hostnames.dashboard}`);
 }

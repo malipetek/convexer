@@ -2,7 +2,7 @@ import Docker from 'dockerode';
 import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
-import { addTunnelRoutes } from './tunnel.js';
+import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
 
 const docker = new Docker();
 
@@ -68,6 +68,15 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     const adminKey = await generateAdminKey(backendContainer, instance.instance_name, instance.instance_secret);
     updateInstance(instance.id, { admin_key: adminKey });
 
+    // Determine public-facing URLs for the dashboard's browser-side code
+    let publicBackendUrl = `http://localhost:${instance.backend_port}`;
+    let publicSiteProxyUrl = `http://localhost:${instance.site_proxy_port}`;
+    if (isTunnelEnabled()) {
+      const hostnames = getInstanceHostnames(instance);
+      publicBackendUrl = `https://${hostnames.backend}`;
+      publicSiteProxyUrl = `https://${hostnames.site}`;
+    }
+
     // Create and start dashboard container
     const dashboardContainer = await docker.createContainer({
       Image: DASHBOARD_IMAGE,
@@ -83,8 +92,8 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       Env: [
         `CONVEX_PROVISION_HOST=http://host.docker.internal:${instance.backend_port}`,
         `CONVEX_SITE_PROXY_HOST=http://host.docker.internal:${instance.site_proxy_port}`,
-        `NEXT_PUBLIC_PROVISION_HOST=http://localhost:${instance.backend_port}`,
-        `NEXT_PUBLIC_SITE_PROXY_HOST=http://localhost:${instance.site_proxy_port}`,
+        `NEXT_PUBLIC_PROVISION_HOST=${publicBackendUrl}`,
+        `NEXT_PUBLIC_SITE_PROXY_HOST=${publicSiteProxyUrl}`,
       ],
     });
 

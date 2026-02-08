@@ -29,6 +29,8 @@ export const api = {
     request<Instance>(`/instances/${id}/stop`, { method: 'POST' }),
   deleteInstance: (id: string) =>
     request<void>(`/instances/${id}`, { method: 'DELETE' }),
+  forgetInstance: (id: string) =>
+    request<void>(`/instances/${id}/forget`, { method: 'POST' }),
   getLogs: (id: string, container: 'backend' | 'dashboard' = 'backend', tail = 200) =>
     request<{ logs: string }>(`/instances/${id}/logs?container=${container}&tail=${tail}`),
 };

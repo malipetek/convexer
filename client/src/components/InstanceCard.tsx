@@ -26,6 +26,11 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
     onSuccess: invalidate,
   });
 
+  const forgetMutation = useMutation({
+    mutationFn: () => api.forgetInstance(instance.id),
+    onSuccess: invalidate,
+  });
+
   const copyAdminKey = () => {
     if (instance.admin_key) {
       navigator.clipboard.writeText(instance.admin_key);
@@ -123,9 +128,20 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
           {showLogs ? 'Hide Logs' : 'Logs'}
         </button>
         <button
+          className="btn btn-secondary"
+          onClick={() => {
+            if (confirm(`Forget "${instance.name}"? (DB only, containers stay)`)) {
+              forgetMutation.mutate();
+            }
+          }}
+          disabled={forgetMutation.isPending}
+        >
+          Forget
+        </button>
+        <button
           className="btn btn-danger"
           onClick={() => {
-            if (confirm(`Delete instance "${instance.name}"?`)) {
+            if (confirm(`Delete instance "${instance.name}" and all its containers/data?`)) {
               deleteMutation.mutate();
             }
           }}
