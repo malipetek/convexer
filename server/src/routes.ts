@@ -1,19 +1,32 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { Instance } from './types.js';
 import { getAllInstances, getInstance, createInstance, deleteInstance, allocatePorts } from './db.js';
 import { createAndStartInstance, startInstance, stopInstance, removeInstance, getContainerLogs } from './docker.js';
+import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostnames } from './tunnel.js';
 
 const router = Router();
 
+// Helper: enrich instance with tunnel URLs
+function withTunnel(instance: Instance) {
+  if (!isTunnelEnabled()) return instance;
+  const hostnames = getInstanceHostnames(instance);
+  return {
+    ...instance,
+    tunnel_backend: `https://${hostnames.backend}`,
+    tunnel_dashboard: `https://${hostnames.dashboard}`,
+  };
+}
+
 // Health check
 router.get('/health', (_req: Request, res: Response) => {
-  res.json({ ok: true });
+  res.json({ ok: true, tunnel: isTunnelEnabled(), domain: getTunnelDomain() });
 });
 
 // List all instances
 router.get('/instances', (_req: Request, res: Response) => {
-  const instances = getAllInstances();
+  const instances = getAllInstances().map(withTunnel);
   res.json(instances);
 });
 
@@ -24,7 +37,7 @@ router.get('/instances/:id', (req: Request, res: Response) => {
     res.status(404).json({ error: 'Instance not found' });
     return;
   }
-  res.json(instance);
+  res.json(withTunnel(instance));
 });
 
 // Create instance
@@ -94,6 +107,9 @@ router.delete('/instances/:id', async (req: Request, res: Response) => {
   }
   try {
     await removeInstance(instance);
+    try { removeTunnelRoutes(instance); } catch (err: any) {
+      console.warn(`Failed to remove tunnel routes:`, err.message);
+    }
     deleteInstance(instance.id);
     res.status(204).send();
   } catch (err: any) {

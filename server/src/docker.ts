@@ -2,6 +2,7 @@ import Docker from 'dockerode';
 import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
+import { addTunnelRoutes } from './tunnel.js';
 
 const docker = new Docker();
 
@@ -89,6 +90,13 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       dashboard_container_id: dashboardContainer.id,
       status: 'running',
     });
+
+    // Add cloudflared tunnel routes
+    try {
+      addTunnelRoutes(instance);
+    } catch (err: any) {
+      console.warn(`Failed to add tunnel routes for ${instance.name}:`, err.message);
+    }
 
     console.log(`Instance ${instance.name} is running`);
   } catch (err: any) {

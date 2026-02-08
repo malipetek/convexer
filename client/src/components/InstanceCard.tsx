@@ -65,6 +65,23 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
           </div>
         </div>
 
+        {instance.tunnel_backend && (
+          <div className="tunnel-urls">
+            <div className="port-item">
+              <span className="port-label">Backend URL:</span>
+              <a href={instance.tunnel_backend} target="_blank" rel="noopener">
+                {instance.tunnel_backend}
+              </a>
+            </div>
+            <div className="port-item">
+              <span className="port-label">Dashboard URL:</span>
+              <a href={instance.tunnel_dashboard} target="_blank" rel="noopener">
+                {instance.tunnel_dashboard}
+              </a>
+            </div>
+          </div>
+        )}
+
         {instance.admin_key && (
           <div className="admin-key">
             <span className="port-label">Admin Key:</span>

@@ -12,6 +12,8 @@ export interface Instance {
   instance_name: string;
   instance_secret: string;
   error_message: string | null;
+  tunnel_backend?: string;
+  tunnel_dashboard?: string;
   created_at: string;
   updated_at: string;
 }

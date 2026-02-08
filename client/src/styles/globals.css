@@ -131,6 +131,17 @@ header h1 {
 
 .port-item a:hover { text-decoration: underline; }
 
+.tunnel-urls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px;
+  background: #1f6feb11;
+  border-radius: 6px;
+  border: 1px solid #1f6feb33;
+}
+
 .admin-key {
   display: flex;
   align-items: center;
