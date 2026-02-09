@@ -10,6 +10,7 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 4000,
         TUNNEL_DOMAIN: 'malipetek.dev',
+        AUTH_PASSWORD: 'capcapcap!!!',
       },
       restart_delay: 3000,
       max_restarts: 10,

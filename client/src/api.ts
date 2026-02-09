@@ -2,17 +2,56 @@ import { Instance } from './types';
 
 const BASE = '/api';
 
+export function getToken(): string | null {
+  return localStorage.getItem('convexer_token');
+}
+
+export function setToken(token: string) {
+  localStorage.setItem('convexer_token', token);
+}
+
+export function clearToken() {
+  localStorage.removeItem('convexer_token');
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
+
+  if (res.status === 401) {
+    clearToken();
+    window.location.reload();
+    throw new Error('Unauthorized');
+  }
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
   return res.json();
+}
+
+export async function login(password: string): Promise<string> {
+  const res = await fetch(`${BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'Login failed');
+  }
+  const { token } = await res.json();
+  setToken(token);
+  return token;
 }
 
 export const api = {

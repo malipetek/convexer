@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import router from './routes.js';
 import { syncInstanceStatuses, ensureImages } from './docker.js';
+import { isAuthEnabled, isValidSession } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
@@ -12,6 +13,20 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Auth middleware — skip if AUTH_PASSWORD not set
+app.use('/api', (req, res, next) => {
+  if (!isAuthEnabled()) return next();
+  if (req.path === '/login' || req.path === '/health') return next();
+
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!token || !isValidSession(token)) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+});
 
 // API routes
 app.use('/api', router);

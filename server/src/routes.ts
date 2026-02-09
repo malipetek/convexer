@@ -5,8 +5,24 @@ import { Instance } from './types.js';
 import { getAllInstances, getInstance, createInstance, deleteInstance, allocatePorts } from './db.js';
 import { createAndStartInstance, startInstance, stopInstance, removeInstance, getContainerLogs } from './docker.js';
 import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostnames } from './tunnel.js';
+import { createSession, isAuthEnabled } from './auth.js';
 
 const router = Router();
+
+// Login
+router.post('/login', (req: Request, res: Response) => {
+  if (!isAuthEnabled()) {
+    res.json({ token: 'no-auth' });
+    return;
+  }
+  const { password } = req.body;
+  if (password !== process.env.AUTH_PASSWORD) {
+    res.status(401).json({ error: 'Invalid password' });
+    return;
+  }
+  const token = createSession();
+  res.json({ token });
+});
 
 // Helper: enrich instance with tunnel URLs
 function withTunnel(instance: Instance) {
