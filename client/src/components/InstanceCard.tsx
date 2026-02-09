@@ -31,12 +31,23 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
     onSuccess: invalidate,
   });
 
-  const copyAdminKey = () => {
-    if (instance.admin_key) {
-      navigator.clipboard.writeText(instance.admin_key);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  const copyAdminKey = async () => {
+    if (!instance.admin_key) return;
+    try {
+      await navigator.clipboard.writeText(instance.admin_key);
+    } catch {
+      // Fallback for non-secure contexts
+      const textarea = document.createElement('textarea');
+      textarea.value = instance.admin_key;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const statusClass = `status-${instance.status}`;
@@ -90,7 +101,7 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
         {instance.admin_key && (
           <div className="admin-key">
             <span className="port-label">Admin Key:</span>
-            <code>{instance.admin_key.substring(0, 20)}...</code>
+            <code className="admin-key-value">{instance.admin_key}</code>
             <button className="btn btn-small" onClick={copyAdminKey}>
               {copied ? 'Copied!' : 'Copy'}
             </button>

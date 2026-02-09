@@ -157,6 +157,18 @@ header h1 {
   color: #c9d1d9;
 }
 
+.admin-key-value {
+  user-select: all;
+  cursor: text;
+  word-break: break-all;
+  max-width: 400px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 .error-message {
   color: #f85149;
   font-size: 13px;
