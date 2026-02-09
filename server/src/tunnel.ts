@@ -58,8 +58,17 @@ function addDnsRecord(hostname: string): void {
 }
 
 function applyAndRestart(): void {
-  execSync(`sudo /bin/cp ${CLOUDFLARED_CONFIG} ${SYSTEM_CONFIG}`);
-  execSync('sudo /bin/systemctl restart cloudflared');
+  try {
+    execSync(`sudo /bin/cp ${CLOUDFLARED_CONFIG} ${SYSTEM_CONFIG}`, { stdio: 'pipe' });
+  } catch (err: any) {
+    console.warn('Failed to copy cloudflared config:', err.stderr?.toString() || err.message);
+  }
+  try {
+    execSync('sudo /bin/systemctl daemon-reload', { stdio: 'pipe' });
+    execSync('sudo /bin/systemctl restart cloudflared', { stdio: 'pipe' });
+  } catch (err: any) {
+    console.warn('Failed to restart cloudflared:', err.stderr?.toString() || err.message);
+  }
 }
 
 export function getTunnelDomain(): string {

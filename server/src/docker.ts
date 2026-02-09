@@ -155,7 +155,7 @@ async function generateAdminKey(container: Docker.Container, instanceName: strin
       AttachStderr: true,
     });
     const stream = await exec.start({ Detach: false, Tty: false });
-    const output = await streamToString(stream);
+    const output = await demuxStream(stream);
     const adminKey = output.trim().split('\n').pop()?.trim();
     if (adminKey) return adminKey;
   } catch (err) {
@@ -167,10 +167,22 @@ async function generateAdminKey(container: Docker.Container, instanceName: strin
   return `${instanceName}|${keyBytes.toString('hex')}`;
 }
 
-function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+function demuxStream(stream: NodeJS.ReadableStream): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let buffer = Buffer.alloc(0);
+
+    stream.on('data', (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      // Docker multiplexed stream: 8-byte header per frame
+      // [stream_type(1), 0, 0, 0, size(4 big-endian)] then payload
+      while (buffer.length >= 8) {
+        const size = buffer.readUInt32BE(4);
+        if (buffer.length < 8 + size) break;
+        chunks.push(buffer.subarray(8, 8 + size));
+        buffer = buffer.subarray(8 + size);
+      }
+    });
     stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     stream.on('error', reject);
   });
@@ -209,16 +221,16 @@ export async function stopInstance(instance: Instance): Promise<void> {
 }
 
 export async function removeInstance(instance: Instance): Promise<void> {
-  // Remove containers
-  for (const cid of [instance.dashboard_container_id, instance.backend_container_id]) {
-    if (!cid) continue;
+  // Try removing containers by ID and by name (fallback for failed creates)
+  const containerIds = [instance.dashboard_container_id, instance.backend_container_id].filter(Boolean) as string[];
+  const containerNames = [`convexer-dashboard-${instance.name}`, `convexer-backend-${instance.name}`];
+
+  for (const ref of [...containerIds, ...containerNames]) {
     try {
-      const container = docker.getContainer(cid);
-      try { await container.stop(); } catch { /* already stopped */ }
+      const container = docker.getContainer(ref);
+      try { await container.stop(); } catch { /* already stopped or doesn't exist */ }
       await container.remove({ force: true });
-    } catch (err: any) {
-      if (err.statusCode !== 404) console.warn(`Failed to remove container ${cid}:`, err.message);
-    }
+    } catch { /* container doesn't exist, that's fine */ }
   }
 
   // Remove volume
