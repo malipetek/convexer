@@ -9,7 +9,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 4000,
-        TUNNEL_DOMAIN: 'malipetek.dev',
+        TUNNEL_DOMAIN: 'deepturkishnews.live',
         AUTH_PASSWORD: 'capcapcap!!!',
       },
       restart_delay: 3000,
