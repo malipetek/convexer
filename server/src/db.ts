@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { Instance } from './types.js';
 
-const DB_PATH = path.join(process.cwd(), 'convexer.db');
+const DB_PATH = path.join(process.env.DATA_DIR || process.cwd(), 'convexer.db');
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
@@ -23,10 +23,22 @@ db.exec(`
     instance_name TEXT NOT NULL,
     instance_secret TEXT NOT NULL,
     error_message TEXT,
+    extra_env TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
+
+// Migration: add extra_env column if it doesn't exist
+try {
+  db.exec('ALTER TABLE instances ADD COLUMN extra_env TEXT');
+} catch (err: any) {
+  if (err.message.includes('duplicate column')) {
+    // Column already exists, that's fine
+  } else {
+    console.warn('Failed to add extra_env column:', err.message);
+  }
+}
 
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all() as Instance[];
@@ -38,8 +50,8 @@ export function getInstance(id: string): Instance | undefined {
 
 export function createInstance(instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id'>): Instance {
   const stmt = db.prepare(`
-    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, volume_name, instance_name, instance_secret)
-    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @volume_name, @instance_name, @instance_secret)
+    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, volume_name, instance_name, instance_secret, extra_env)
+    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @volume_name, @instance_name, @instance_secret, @extra_env)
   `);
   stmt.run(instance);
   return getInstance(instance.id)!;
@@ -48,7 +60,7 @@ export function createInstance(instance: Omit<Instance, 'created_at' | 'updated_
 export function updateInstance(id: string, updates: Partial<Instance>): Instance | undefined {
   const allowed = [
     'status', 'backend_container_id', 'dashboard_container_id',
-    'admin_key', 'error_message'
+    'admin_key', 'error_message', 'extra_env'
   ];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return getInstance(id);

@@ -12,9 +12,18 @@ export interface Instance {
   instance_name: string;
   instance_secret: string;
   error_message: string | null;
+  extra_env: string | null;
   tunnel_backend?: string;
   tunnel_site?: string;
   tunnel_dashboard?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface InstanceStats
+{
+  cpu_percent: number;
+  memory_mb: number;
+  memory_limit_mb: number;
+  volume_size_bytes: number;
 }

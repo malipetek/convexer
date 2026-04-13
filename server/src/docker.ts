@@ -3,8 +3,16 @@ import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
 import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
+import { ensureTraefik, getTraefikLabels } from './traefik.js';
 
 const docker = new Docker();
+const NETWORK_NAME = 'convexer-net';
+
+// Ensure Traefik on module load
+ensureTraefik().catch(err =>
+{
+  console.warn('Failed to ensure Traefik:', err.message);
+});
 
 const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
 const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
@@ -35,6 +43,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
 
     const isLinux = process.platform === 'linux';
     const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
+    const domain = process.env.DOMAIN || '';
 
     // Build backend env vars
     const backendEnv = [
@@ -43,6 +52,14 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       `INSTANCE_NAME=${instance.instance_name}`,
       `INSTANCE_SECRET=${instance.instance_secret}`,
     ];
+
+    // When Traefik is enabled, set cloud/site origins to public URLs
+    if (domain) {
+      backendEnv.push(
+        `CONVEX_CLOUD_ORIGIN=https://${instance.name}.${domain}`,
+        `CONVEX_SITE_ORIGIN=https://${instance.name}-site.${domain}`,
+      );
+    }
 
     // When tunnel is enabled, tell the backend its public URLs
     // so it can accept WebSocket connections from the tunnel hostname
@@ -53,6 +70,21 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         `CONVEX_SITE_ORIGIN=https://${hostnames.site}`,
       );
     }
+
+    // Merge extra_env if provided
+    if (instance.extra_env) {
+      try {
+        const extra = JSON.parse(instance.extra_env);
+        for (const [key, value] of Object.entries(extra)) {
+          backendEnv.push(`${key}=${value}`);
+        }
+      } catch (err) {
+        console.warn('Failed to parse extra_env:', err);
+      }
+    }
+
+    // Get Traefik labels if domain is set
+    const traefikLabels = getTraefikLabels(instance, domain);
 
     // Create and start backend container
     const backendContainer = await docker.createContainer({
@@ -69,9 +101,19 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         ExtraHosts: extraHosts,
       },
       Env: backendEnv,
+      Labels: traefikLabels,
     });
 
     await backendContainer.start();
+
+    // Attach to network
+    try {
+      const network = docker.getNetwork(NETWORK_NAME);
+      await network.connect({ Container: backendContainer.id });
+    } catch (err: any) {
+      console.warn(`Failed to connect backend to network:`, err.message);
+    }
+
     updateInstance(instance.id, { backend_container_id: backendContainer.id });
 
     // Wait for backend to be healthy
@@ -88,6 +130,9 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       const hostnames = getInstanceHostnames(instance);
       publicBackendUrl = `https://${hostnames.backend}`;
       publicSiteProxyUrl = `https://${hostnames.site}`;
+    } else if (domain) {
+      publicBackendUrl = `https://${instance.name}.${domain}`;
+      publicSiteProxyUrl = `https://${instance.name}-site.${domain}`;
     }
 
     // Create and start dashboard container
@@ -108,9 +153,19 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         `NEXT_PUBLIC_PROVISION_HOST=${publicBackendUrl}`,
         `NEXT_PUBLIC_SITE_PROXY_HOST=${publicSiteProxyUrl}`,
       ],
+      Labels: traefikLabels,
     });
 
     await dashboardContainer.start();
+
+    // Attach to network
+    try {
+      const network = docker.getNetwork(NETWORK_NAME);
+      await network.connect({ Container: dashboardContainer.id });
+    } catch (err: any) {
+      console.warn(`Failed to connect dashboard to network:`, err.message);
+    }
+
     updateInstance(instance.id, {
       dashboard_container_id: dashboardContainer.id,
       status: 'running',

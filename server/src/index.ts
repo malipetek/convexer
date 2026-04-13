@@ -5,9 +5,27 @@ import { fileURLToPath } from 'url';
 import router from './routes.js';
 import { syncInstanceStatuses, ensureImages } from './docker.js';
 import { isAuthEnabled, isValidSession } from './auth.js';
+import Docker from 'dockerode';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
+const NETWORK_NAME = 'convexer-net';
+
+const docker = new Docker();
+
+async function ensureNetwork (): Promise<void>
+{
+  try {
+    await docker.createNetwork({ Name: NETWORK_NAME });
+    console.log(`Created network: ${NETWORK_NAME}`);
+  } catch (err: any) {
+    if (err.statusCode === 409) {
+      console.log(`Network ${NETWORK_NAME} already exists`);
+    } else {
+      console.warn(`Failed to create network ${NETWORK_NAME}:`, err.message);
+    }
+  }
+}
 
 const app = express();
 
@@ -38,8 +56,12 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDist, 'index.html'));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () =>
+{
   console.log(`Convexer server running on http://localhost:${PORT}`);
+
+  // Ensure shared Docker network exists
+  await ensureNetwork();
 
   // Sync instance statuses with Docker on startup
   syncInstanceStatuses().catch(err => {

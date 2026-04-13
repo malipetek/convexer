@@ -3,9 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Instance } from '../types';
 import { api } from '../api';
 import LogViewer from './LogViewer';
+import SettingsModal from './SettingsModal';
+import MetricsBadge from './MetricsBadge';
 
 export default function InstanceCard({ instance }: { instance: Instance }) {
   const [showLogs, setShowLogs] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
 
@@ -51,7 +54,10 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
     <div className="instance-card">
       <div className="card-header">
         <h3>{instance.name}</h3>
-        <span className={`status-badge ${statusClass}`}>{instance.status}</span>
+        <div className="header-right">
+          {instance.status === 'running' && <MetricsBadge instanceId={instance.id} />}
+          <span className={`status-badge ${statusClass}`}>{instance.status}</span>
+        </div>
       </div>
 
       <div className="card-body">
@@ -135,6 +141,12 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
         )}
         <button
           className="btn btn-secondary"
+          onClick={() => setShowSettings(true)}
+        >
+          Settings
+        </button>
+        <button
+          className="btn btn-secondary"
           onClick={() => setShowLogs(!showLogs)}
         >
           {showLogs ? 'Hide Logs' : 'Logs'}
@@ -164,6 +176,7 @@ export default function InstanceCard({ instance }: { instance: Instance }) {
       </div>
 
       {showLogs && <LogViewer instanceId={instance.id} />}
+      {showSettings && <SettingsModal instance={instance} onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

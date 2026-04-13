@@ -1,0 +1,92 @@
+import Docker from 'dockerode';
+import { Instance } from './types.js';
+
+const docker = new Docker();
+const TRAEFIK_CONTAINER_NAME = 'convexer-traefik';
+const NETWORK_NAME = 'convexer-net';
+
+export async function ensureTraefik(): Promise<void> {
+  try {
+    const container = docker.getContainer(TRAEFIK_CONTAINER_NAME);
+    await container.inspect();
+    console.log('Traefik container already exists');
+    return;
+  } catch (err: any) {
+    if (err.statusCode !== 404) {
+      console.warn('Failed to check Traefik container:', err.message);
+      return;
+    }
+  }
+
+  try {
+    console.log('Creating Traefik container...');
+    await docker.createContainer({
+      Image: 'traefik:v3',
+      name: TRAEFIK_CONTAINER_NAME,
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        PortBindings: {
+          '80/tcp': [{ HostPort: '80' }],
+          '443/tcp': [{ HostPort: '443' }],
+        },
+        Binds: ['/var/run/docker.sock:/var/run/docker.sock:ro'],
+      },
+      Cmd: [
+        '--providers.docker=true',
+        '--providers.docker.network=convexer-net',
+        '--providers.docker.exposedbydefault=false',
+        '--entrypoints.web.address=:80',
+        '--entrypoints.websecure.address=:443',
+        '--certificatesresolvers.le.acme.tlschallenge=true',
+        '--certificatesresolvers.le.acme.email=webmaster@localhost',
+        '--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json',
+      ],
+    });
+
+    const container = docker.getContainer(TRAEFIK_CONTAINER_NAME);
+    await container.start();
+
+    // Connect to network
+    const network = docker.getNetwork(NETWORK_NAME);
+    await network.connect({ Container: TRAEFIK_CONTAINER_NAME });
+
+    console.log('Traefik container created and started');
+  } catch (err: any) {
+    console.warn('Failed to create Traefik container:', err.message);
+  }
+}
+
+export async function getTraefikStatus(): Promise<{ running: boolean; container_id: string | null }> {
+  try {
+    const container = docker.getContainer(TRAEFIK_CONTAINER_NAME);
+    const info = await container.inspect();
+    return { running: info.State.Running, container_id: container.id };
+  } catch {
+    return { running: false, container_id: null };
+  }
+}
+
+export function getTraefikLabels(instance: Instance, domain: string): Record<string, string> {
+  if (!domain) return {};
+
+  return {
+    'traefik.enable': 'true',
+    'traefik.http.routers.backend.rule': `Host(\`${instance.name}.${domain}\`)`,
+    'traefik.http.routers.backend.entrypoints': 'websecure',
+    'traefik.http.routers.backend.tls': 'true',
+    'traefik.http.routers.backend.tls.certresolver': 'le',
+    'traefik.http.services.backend.loadbalancer.server.port': '3210',
+
+    'traefik.http.routers.site.rule': `Host(\`${instance.name}-site.${domain}\`)`,
+    'traefik.http.routers.site.entrypoints': 'websecure',
+    'traefik.http.routers.site.tls': 'true',
+    'traefik.http.routers.site.tls.certresolver': 'le',
+    'traefik.http.services.site.loadbalancer.server.port': '3211',
+
+    'traefik.http.routers.dashboard.rule': `Host(\`${instance.name}-dash.${domain}\`)`,
+    'traefik.http.routers.dashboard.entrypoints': 'websecure',
+    'traefik.http.routers.dashboard.tls': 'true',
+    'traefik.http.routers.dashboard.tls.certresolver': 'le',
+    'traefik.http.services.dashboard.loadbalancer.server.port': '6791',
+  };
+}

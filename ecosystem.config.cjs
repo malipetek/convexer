@@ -1,3 +1,6 @@
+// LEGACY: PM2 configuration
+// Primary deployment path is now Docker Compose (see docker-compose.yml)
+// This config is kept for reference or bare-metal deployments
 module.exports = {
   apps: [
     {

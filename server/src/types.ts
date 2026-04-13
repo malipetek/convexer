@@ -12,10 +12,12 @@ export interface Instance {
   instance_name: string;
   instance_secret: string;
   error_message: string | null;
+  extra_env: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateInstanceRequest {
   name?: string;
+  extra_env?: Record<string, string>;
 }

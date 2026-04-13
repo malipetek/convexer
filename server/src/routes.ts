@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import Docker from 'dockerode';
 import { Instance } from './types.js';
-import { getAllInstances, getInstance, createInstance, deleteInstance, allocatePorts } from './db.js';
+import { getAllInstances, getInstance, createInstance, deleteInstance, allocatePorts, updateInstance } from './db.js';
 import { createAndStartInstance, startInstance, stopInstance, removeInstance, getContainerLogs } from './docker.js';
 import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostnames } from './tunnel.js';
 import { createSession, isAuthEnabled } from './auth.js';
+import { getTraefikStatus } from './traefik.js';
+
+const docker = new Docker();
 
 const router = Router();
 
@@ -37,8 +41,16 @@ function withTunnel(instance: Instance) {
 }
 
 // Health check
-router.get('/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, tunnel: isTunnelEnabled(), domain: getTunnelDomain() });
+router.get('/health', async (_req: Request, res: Response) =>
+{
+  const traefikStatus = await getTraefikStatus();
+  res.json({
+    ok: true,
+    tunnel: isTunnelEnabled(),
+    tunnel_domain: getTunnelDomain(),
+    domain: process.env.DOMAIN || null,
+    traefik: traefikStatus,
+  });
 });
 
 // List all instances
@@ -59,7 +71,7 @@ router.get('/instances/:id', (req: Request, res: Response) => {
 
 // Create instance
 router.post('/instances', (req: Request, res: Response) => {
-  const { name } = req.body;
+  const { name, extra_env } = req.body;
   const instanceName = name || `instance-${Date.now()}`;
   const id = uuidv4();
   const instanceSecret = crypto.randomBytes(32).toString('hex');
@@ -75,6 +87,7 @@ router.post('/instances', (req: Request, res: Response) => {
     volume_name: `convexer-${instanceName}`,
     instance_name: instanceName,
     instance_secret: instanceSecret,
+    extra_env: extra_env ? JSON.stringify(extra_env) : null,
   });
 
   // Start creation in background
@@ -178,6 +191,102 @@ router.get('/instances/:id/logs', async (req: Request, res: Response) => {
   try {
     const logs = await getContainerLogs(containerId, tail);
     res.json({ logs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update instance settings (extra_env)
+router.put('/instances/:id/settings', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const { extra_env } = req.body;
+
+  // Store new extra_env
+  const updated = updateInstance(instance.id, {
+    extra_env: extra_env ? JSON.stringify(extra_env) : null,
+  });
+
+  if (!updated) {
+    res.status(500).json({ error: 'Failed to update instance' });
+    return;
+  }
+
+  // Stop and remove backend container
+  try {
+    if (instance.backend_container_id) {
+      const container = docker.getContainer(instance.backend_container_id);
+      await container.stop();
+      await container.remove();
+    }
+  } catch (err: any) {
+    console.warn('Failed to stop/remove backend:', err.message);
+  }
+
+  // Recreate backend with new env
+  try {
+    await createAndStartInstance(updated);
+  } catch (err: any) {
+    console.error('Failed to recreate backend:', err.message);
+    res.status(500).json({ error: err.message });
+    return;
+  }
+
+  res.json(getInstance(instance.id));
+});
+
+// Get instance stats (CPU, memory, disk)
+router.get('/instances/:id/stats', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  if (!instance.backend_container_id) {
+    res.status(404).json({ error: 'No backend container found' });
+    return;
+  }
+
+  try {
+    const container = docker.getContainer(instance.backend_container_id);
+    const stats = await container.stats({ stream: false });
+
+    const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+    const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+    const cpuPercent = (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100;
+
+    const memoryUsage = stats.memory_stats.usage || 0;
+    const memoryLimit = stats.memory_stats.limit || 0;
+    const memoryMb = memoryUsage / (1024 * 1024);
+    const memoryLimitMb = memoryLimit / (1024 * 1024);
+
+    // Get volume size
+    let volumeSizeBytes = 0;
+    try {
+      const volume = docker.getVolume(instance.volume_name);
+      const info = await volume.inspect();
+      if (info.Mountpoint) {
+        const fs = await import('fs');
+        const stats = fs.statSync(info.Mountpoint);
+        volumeSizeBytes = stats.size;
+      }
+    } catch (err) {
+      // Volume size unavailable
+    }
+
+    res.json({
+      cpu_percent: Math.round(cpuPercent * 100) / 100,
+      memory_mb: Math.round(memoryMb),
+      memory_limit_mb: Math.round(memoryLimitMb),
+      volume_size_bytes: volumeSizeBytes,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

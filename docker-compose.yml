@@ -1,0 +1,25 @@
+services:
+  convexer:
+    build: .
+    container_name: convexer
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - convexer-data:/app/server
+    environment:
+      - DATA_DIR=/app/server
+      - DOMAIN=${DOMAIN:-}
+      - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
+      - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+    networks:
+      - convexer-net
+
+volumes:
+  convexer-data:
+
+networks:
+  convexer-net:
+    driver: bridge

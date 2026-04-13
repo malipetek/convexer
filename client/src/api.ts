@@ -1,4 +1,4 @@
-import { Instance } from './types';
+import { Instance, InstanceStats } from './types';
 
 const BASE = '/api';
 
@@ -57,10 +57,10 @@ export async function login(password: string): Promise<string> {
 export const api = {
   getInstances: () => request<Instance[]>('/instances'),
   getInstance: (id: string) => request<Instance>(`/instances/${id}`),
-  createInstance: (name?: string) =>
+  createInstance: (name?: string, extra_env?: Record<string, string>) =>
     request<Instance>('/instances', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, extra_env }),
     }),
   startInstance: (id: string) =>
     request<Instance>(`/instances/${id}/start`, { method: 'POST' }),
@@ -72,4 +72,11 @@ export const api = {
     request<void>(`/instances/${id}/forget`, { method: 'POST' }),
   getLogs: (id: string, container: 'backend' | 'dashboard' = 'backend', tail = 200) =>
     request<{ logs: string }>(`/instances/${id}/logs?container=${container}&tail=${tail}`),
+  updateSettings: (id: string, extra_env: Record<string, string>) =>
+    request<Instance>(`/instances/${id}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ extra_env }),
+    }),
+  getStats: (id: string) =>
+    request<InstanceStats>(`/instances/${id}/stats`),
 };

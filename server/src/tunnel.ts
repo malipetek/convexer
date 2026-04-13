@@ -24,6 +24,9 @@ interface CloudflaredConfig {
 }
 
 function readConfig(): CloudflaredConfig {
+  if (!fs.existsSync(CLOUDFLARED_CONFIG)) {
+    return { ingress: [] };
+  }
   const content = fs.readFileSync(CLOUDFLARED_CONFIG, 'utf-8');
   return parse(content) as CloudflaredConfig;
 }
@@ -58,17 +61,9 @@ function addDnsRecord(hostname: string): void {
 }
 
 function applyAndRestart(): void {
-  try {
-    execSync(`sudo /bin/cp ${CLOUDFLARED_CONFIG} ${SYSTEM_CONFIG}`, { stdio: 'pipe' });
-  } catch (err: any) {
-    console.warn('Failed to copy cloudflared config:', err.stderr?.toString() || err.message);
-  }
-  try {
-    execSync('sudo /bin/systemctl daemon-reload', { stdio: 'pipe' });
-    execSync('sudo /bin/systemctl restart cloudflared', { stdio: 'pipe' });
-  } catch (err: any) {
-    console.warn('Failed to restart cloudflared:', err.stderr?.toString() || err.message);
-  }
+  // Config is written, but restart is left to the user
+  // This removes the need for sudo/systemctl access when running in Docker
+  console.log('Tunnel config updated. Restart cloudflared manually if needed.');
 }
 
 export function getTunnelDomain(): string {
