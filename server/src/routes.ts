@@ -292,4 +292,71 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
   }
 });
 
+// Version endpoints
+const CURRENT_VERSION = '0.1.0'; // Should be updated with actual version
+
+// Get current version
+router.get('/version', (_req: Request, res: Response) =>
+{
+  res.json({
+    current_version: CURRENT_VERSION,
+  });
+});
+
+// Check for updates (simulated - would check GitHub API in production)
+router.get('/version/check', async (_req: Request, res: Response) =>
+{
+  try {
+    // In production, this would check GitHub API for latest release
+    // For now, we'll simulate checking against a hardcoded "latest" version
+    const LATEST_VERSION = '0.2.0'; // Example latest version
+
+    // Simple semantic version comparison
+    const hasUpdate = compareVersions(CURRENT_VERSION, LATEST_VERSION);
+
+    res.json({
+      current_version: CURRENT_VERSION,
+      latest_version: LATEST_VERSION,
+      has_update: hasUpdate,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger update (would pull from main branch in production)
+router.post('/version/update', async (_req: Request, res: Response) =>
+{
+  try {
+    // In production, this would:
+    // 1. Pull latest from main branch
+    // 2. Run npm install / pnpm install
+    // 3. Restart the server
+
+    // For now, we'll simulate the update
+    console.log('Update triggered - would pull from main branch');
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper: compare semantic versions
+function compareVersions (current: string, latest: string): boolean
+{
+  const currentParts = current.split('.').map(Number);
+  const latestParts = latest.split('.').map(Number);
+
+  for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
+    const currentPart = currentParts[i] || 0;
+    const latestPart = latestParts[i] || 0;
+
+    if (latestPart > currentPart) return true;
+    if (latestPart < currentPart) return false;
+  }
+
+  return false;
+}
+
 export default router;

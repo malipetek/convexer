@@ -79,4 +79,7 @@ export const api = {
     }),
   getStats: (id: string) =>
     request<InstanceStats>(`/instances/${id}/stats`),
+  getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),
+  checkUpdate: () => request<{ current_version: string; latest_version: string; has_update: boolean }>('/version/check'),
+  updateApp: () => request<{ success: boolean }>('/version/update', { method: 'POST' }),
 };
