@@ -302,6 +302,7 @@ export async function getContainerLogs(containerId: string, tail: number = 200):
     timestamps: true,
   });
   return logs.toString('utf-8');
+}
 
 export async function syncInstanceStatuses(): Promise<void> {
   const instances = getAllInstances();
