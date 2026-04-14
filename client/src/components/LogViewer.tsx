@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { Card, CardContent } from './ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 export default function LogViewer({ instanceId }: { instanceId: string }) {
   const [container, setContainer] = useState<'backend' | 'dashboard'>('backend');
@@ -19,25 +21,37 @@ export default function LogViewer({ instanceId }: { instanceId: string }) {
   }, [data]);
 
   return (
-    <div className="log-viewer">
-      <div className="log-tabs">
-        <button
-          className={`btn btn-small ${container === 'backend' ? 'active' : ''}`}
-          onClick={() => setContainer('backend')}
-        >
-          Backend
-        </button>
-        <button
-          className={`btn btn-small ${container === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setContainer('dashboard')}
-        >
-          Dashboard
-        </button>
-      </div>
-      {error && <div className="error-message">{(error as Error).message}</div>}
-      <pre ref={logRef} className="log-content">
-        {data?.logs || 'No logs available'}
-      </pre>
-    </div>
+    <Card className="mt-4">
+      <CardContent className="p-0">
+        <Tabs value={container} onValueChange={(value) => setContainer(value as 'backend' | 'dashboard')}>
+          <TabsList className="w-full rounded-none border-b">
+            <TabsTrigger value="backend">Backend</TabsTrigger>
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          </TabsList>
+          <TabsContent value="backend" className="p-4">
+            {error && (
+              <div className="text-sm text-destructive mb-2">{(error as Error).message}</div>
+            )}
+            <pre
+              ref={logRef}
+              className="text-xs bg-muted p-4 rounded overflow-auto max-h-96 font-mono"
+            >
+              {data?.logs || 'No logs available'}
+            </pre>
+          </TabsContent>
+          <TabsContent value="dashboard" className="p-4">
+            {error && (
+              <div className="text-sm text-destructive mb-2">{(error as Error).message}</div>
+            )}
+            <pre
+              ref={logRef}
+              className="text-xs bg-muted p-4 rounded overflow-auto max-h-96 font-mono"
+            >
+              {data?.logs || 'No logs available'}
+            </pre>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
   );
 }

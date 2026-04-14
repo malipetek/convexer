@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 export default function CreateDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
@@ -28,18 +33,16 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog" onClick={e => e.stopPropagation()}>
-        <h2>Create Instance</h2>
-        <form
-          onSubmit={e => {
-            e.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <label>
-            Instance Name (optional)
-            <input
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create Instance</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Instance Name (optional)</Label>
+            <Input
+              id="name"
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
@@ -48,81 +51,88 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
               title="Lowercase letters, numbers, and hyphens only"
               autoFocus
             />
-          </label>
+          </div>
 
-          <button
+          <Button
             type="button"
-            className="btn btn-secondary"
+            variant="outline"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            style={{ marginTop: '0.5rem', width: '100%' }}
+            className="w-full"
           >
             {showAdvanced ? '− Hide Advanced Settings' : '+ Show Advanced Settings'}
-          </button>
+          </Button>
 
           {showAdvanced && (
-            <div className="advanced-settings" style={{ marginTop: '1rem', padding: '1rem', background: '#f5f5f5', borderRadius: '4px' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>Advanced Settings</h4>
+            <div className="space-y-4 p-4 bg-muted rounded-md">
+              <h4 className="font-semibold">Advanced Settings</h4>
 
-              <label>
-                Document Retention Delay (seconds)
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="retention">Document Retention Delay (seconds)</Label>
+                <Input
+                  id="retention"
                   type="number"
                   value={retentionDelay}
                   onChange={e => setRetentionDelay(e.target.value)}
                   placeholder="172800 (2 days)"
                 />
-                <small>How long soft-deleted documents are kept before permanent removal</small>
-              </label>
+                <p className="text-sm text-muted-foreground">
+                  How long soft-deleted documents are kept before permanent removal
+                </p>
+              </div>
 
-              <label>
-                Max Concurrent Mutations
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="mutations">Max Concurrent Mutations</Label>
+                <Input
+                  id="mutations"
                   type="number"
                   value={maxConcurrentMutations}
                   onChange={e => setMaxConcurrentMutations(e.target.value)}
                   placeholder="16"
                 />
-              </label>
+              </div>
 
-              <label>
-                Max Concurrent Queries
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="queries">Max Concurrent Queries</Label>
+                <Input
+                  id="queries"
                   type="number"
                   value={maxConcurrentQueries}
                   onChange={e => setMaxConcurrentQueries(e.target.value)}
                   placeholder="16"
                 />
-              </label>
+              </div>
 
-              <label>
-                Log Level (RUST_LOG)
-                <select
-                  value={rustLog}
-                  onChange={e => setRustLog(e.target.value)}
-                >
-                  <option value="error">error</option>
-                  <option value="warn">warn</option>
-                  <option value="info">info</option>
-                  <option value="debug">debug</option>
-                  <option value="trace">trace</option>
-                </select>
-              </label>
+              <div className="space-y-2">
+                <Label htmlFor="logLevel">Log Level (RUST_LOG)</Label>
+                <Select value={rustLog} onValueChange={setRustLog}>
+                  <SelectTrigger id="logLevel">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error">error</SelectItem>
+                    <SelectItem value="warn">warn</SelectItem>
+                    <SelectItem value="info">info</SelectItem>
+                    <SelectItem value="debug">debug</SelectItem>
+                    <SelectItem value="trace">trace</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
           {mutation.error && (
-            <div className="error-message">{(mutation.error as Error).message}</div>
+            <div className="text-sm text-destructive">{(mutation.error as Error).message}</div>
           )}
-          <div className="dialog-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Creating...' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

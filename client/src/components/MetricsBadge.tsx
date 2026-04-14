@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { Badge } from './ui/badge';
+import { Cpu, HardDrive, MemoryStick } from 'lucide-react';
 
 interface MetricsBadgeProps {
   instanceId: string;
@@ -14,7 +16,7 @@ export default function MetricsBadge({ instanceId }: MetricsBadgeProps) {
   });
 
   if (isLoading) {
-    return <span className="metrics-badge loading">Loading metrics...</span>;
+    return <Badge variant="outline" className="text-xs">Loading...</Badge>;
   }
 
   if (error || !stats) {
@@ -30,8 +32,19 @@ export default function MetricsBadge({ instanceId }: MetricsBadgeProps) {
   };
 
   return (
-    <span className="metrics-badge">
-      CPU {stats.cpu_percent.toFixed(1)}% · RAM {stats.memory_mb.toFixed(0)} MB · Disk {formatBytes(stats.volume_size_bytes)}
-    </span>
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1">
+        <Cpu className="h-3 w-3" />
+        <span>{stats.cpu_percent.toFixed(1)}%</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <MemoryStick className="h-3 w-3" />
+        <span>{stats.memory_mb.toFixed(0)} MB</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <HardDrive className="h-3 w-3" />
+        <span>{formatBytes(stats.volume_size_bytes)}</span>
+      </div>
+    </div>
   );
 }
