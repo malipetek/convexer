@@ -1,4 +1,22 @@
 services:
+  traefik:
+    image: traefik:latest
+    container_name: convexer-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - convexer-net
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.network=convexer-net"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+
   convexer:
     build: .
     container_name: convexer

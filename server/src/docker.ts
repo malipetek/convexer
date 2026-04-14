@@ -3,16 +3,10 @@ import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
 import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
-import { ensureTraefik, getTraefikLabels } from './traefik.js';
+import { getTraefikLabels } from './traefik.js';
 
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
-
-// Ensure Traefik on module load
-ensureTraefik().catch(err =>
-{
-  console.warn('Failed to ensure Traefik:', err.message);
-});
 
 const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
 const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
