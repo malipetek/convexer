@@ -35,7 +35,7 @@ app.use(express.json());
 // Auth middleware — skip if AUTH_PASSWORD not set
 app.use('/api', (req, res, next) => {
   if (!isAuthEnabled()) return next();
-  if (req.path === '/login' || req.path === '/health') return next();
+  if (req.path === '/login' || req.path === '/health' || req.path.startsWith('/version')) return next();
 
   const auth = req.headers.authorization;
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
