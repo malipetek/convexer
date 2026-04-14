@@ -13,6 +13,8 @@ COPY client/index.html ./client/
 COPY client/src ./client/src
 COPY client/vite.config.ts ./client/
 COPY client/tsconfig.json ./client/
+COPY client/postcss.config.js ./client/
+COPY client/tailwind.config.js ./client/
 
 # Install dependencies with npm for traditional node_modules structure
 RUN npm install
