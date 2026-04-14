@@ -7,9 +7,9 @@ services:
       - "80:4000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - convexer-data:/app/server
+      - convexer-data:/app/server/data
     environment:
-      - DATA_DIR=/app/server
+      - DATA_DIR=/app/server/data
       - DOMAIN=${DOMAIN:-}
       - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
       - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}

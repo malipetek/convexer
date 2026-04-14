@@ -48,7 +48,7 @@ COPY --from=builder /app/client/dist ./client/dist
 EXPOSE 4000
 
 # Set data directory and node path for module resolution
-ENV DATA_DIR=/app/server
+ENV DATA_DIR=/app/server/data
 ENV NODE_PATH=/app/node_modules
 
 # Start server from workspace root where node_modules are located
