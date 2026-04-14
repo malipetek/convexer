@@ -46,6 +46,23 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// Global settings endpoints (public, no auth)
+app.get('/api/settings', (_req, res) =>
+{
+  res.json({ hostname: process.env.DOMAIN || '' });
+});
+
+app.post('/api/settings', (req, res) =>
+{
+  console.log('Saving settings:', req.body);
+  const { hostname } = req.body;
+  if (hostname) {
+    process.env.DOMAIN = hostname;
+    console.log('Hostname set to:', hostname);
+  }
+  res.json({ success: true, hostname });
+});
+
 // API routes
 app.use('/api', router);
 
@@ -77,21 +94,6 @@ app.post('/api/version/update', async (_req, res) =>
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
-
-// Global settings endpoints
-app.get('/api/settings', (_req, res) =>
-{
-  res.json({ hostname: process.env.DOMAIN || '' });
-});
-
-app.post('/api/settings', (req, res) =>
-{
-  const { hostname } = req.body;
-  if (hostname) {
-    process.env.DOMAIN = hostname;
-  }
-  res.json({ success: true, hostname });
 });
 
 // Serve static client build in production

@@ -139,47 +139,6 @@ export default function InstanceDetail() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Local Access</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Backend:</span>
-                    <a
-                      href={`http://localhost:${instance.backend_port}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      :{instance.backend_port}
-                    </a>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Site:</span>
-                    <a
-                      href={`http://localhost:${instance.site_proxy_port}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      :{instance.site_proxy_port}
-                    </a>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Dashboard:</span>
-                    <a
-                      href={`http://localhost:${instance.dashboard_port}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      :{instance.dashboard_port}
-                    </a>
-                  </div>
-                </CardContent>
-              </Card>
-
               {instance.tunnel_backend && (
                 <Card>
                   <CardHeader>
@@ -335,24 +294,42 @@ export default function InstanceDetail() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-3 gap-6">
-                      <MetricsGauge
-                        value={stats?.cpu_percent || 0}
-                        max={100}
-                        label="CPU"
-                        color="#22c55e"
-                      />
-                      <MetricsGauge
-                        value={stats?.memory_mb || 0}
-                        max={4096}
-                        label="Memory (MB)"
-                        color="#3b82f6"
-                      />
-                      <MetricsGauge
-                        value={stats?.volume_size_bytes ? stats.volume_size_bytes / (1024 * 1024 * 1024) : 0}
-                        max={50}
-                        label="Disk (GB)"
-                        color="#f59e0b"
-                      />
+                      <div className="text-center">
+                        <MetricsGauge
+                          value={stats?.cpu_percent || 0}
+                          max={100}
+                          label="CPU"
+                          color="#22c55e"
+                        />
+                        <div className="mt-2 text-sm font-semibold">
+                          {stats?.cpu_percent.toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <MetricsGauge
+                          value={stats?.memory_mb || 0}
+                          max={stats?.memory_limit_mb || 4096}
+                          label="Memory"
+                          color="#3b82f6"
+                        />
+                        <div className="mt-2 text-sm font-semibold">
+                          {stats?.memory_mb.toFixed(0)} MB / {stats?.memory_limit_mb?.toFixed(0) || 4096} MB
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {((stats?.memory_mb || 0) / (stats?.memory_limit_mb || 4096) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <MetricsGauge
+                          value={stats?.volume_size_bytes ? stats.volume_size_bytes / (1024 * 1024 * 1024) : 0}
+                          max={50}
+                          label="Disk"
+                          color="#f59e0b"
+                        />
+                        <div className="mt-2 text-sm font-semibold">
+                          {(stats?.volume_size_bytes ? stats.volume_size_bytes / (1024 * 1024 * 1024) : 0).toFixed(2)} GB
+                        </div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
