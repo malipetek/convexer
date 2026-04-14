@@ -91,15 +91,6 @@ export function getTraefikLabels(instance: Instance, domain: string): Record<str
 
   const labels: Record<string, string> = {
     'traefik.enable': 'true',
-    'traefik.http.routers.backend.rule': `Host(\`${subdomain}.${domain}\`)`,
-    'traefik.http.routers.backend.entrypoints': 'web',
-    'traefik.http.routers.backend.service': `backend-${instance.name}`,
-    'traefik.http.routers.site.rule': `Host(\`${subdomain}-site.${domain}\`)`,
-    'traefik.http.routers.site.entrypoints': 'web',
-    'traefik.http.routers.site.service': `site-${instance.name}`,
-    'traefik.http.routers.dashboard.rule': `Host(\`${dashboardSubdomain}.${domain}\`)`,
-    'traefik.http.routers.dashboard.entrypoints': 'web',
-    'traefik.http.routers.dashboard.service': `dashboard-${instance.name}`,
   };
 
   labels[`traefik.http.routers.backend-${instance.name}.rule`] = `Host(\`${subdomain}.${domain}\`)`;
