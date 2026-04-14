@@ -141,7 +141,7 @@ export default function InstanceDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Ports</CardTitle>
+                  <CardTitle>Local Access</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -222,6 +222,42 @@ export default function InstanceDetail() {
                   </CardContent>
                 </Card>
               )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Subdomain Configuration</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground w-32">Instance:</span>
+                    <span className="text-sm font-mono">
+                      {(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.SUBDOMAIN || instance.name;
+                        } catch {
+                          return instance.name;
+                        }
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground w-32">Dashboard:</span>
+                    <span className="text-sm font-mono">
+                      {(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.DASHBOARD_SUBDOMAIN || `${instance.name}-dash`;
+                        } catch {
+                          return `${instance.name}-dash`;
+                        }
+                      })()}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
 
               <Card>
                 <CardHeader>

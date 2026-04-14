@@ -75,10 +75,28 @@ export function isTunnelEnabled(): boolean {
 }
 
 export function getInstanceHostnames(instance: Instance): { backend: string; site: string; dashboard: string } {
+  // Parse extra_env to get custom subdomains
+  let subdomain = instance.name;
+  let dashboardSubdomain = `${instance.name}-dash`;
+
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      if (env.SUBDOMAIN) {
+        subdomain = env.SUBDOMAIN;
+      }
+      if (env.DASHBOARD_SUBDOMAIN) {
+        dashboardSubdomain = env.DASHBOARD_SUBDOMAIN;
+      }
+    } catch (e) {
+      // Use defaults if parsing fails
+    }
+  }
+
   return {
-    backend: `${instance.name}.${TUNNEL_DOMAIN}`,
-    site: `${instance.name}-site.${TUNNEL_DOMAIN}`,
-    dashboard: `${instance.name}-dash.${TUNNEL_DOMAIN}`,
+    backend: `${subdomain}.${TUNNEL_DOMAIN}`,
+    site: `${subdomain}-site.${TUNNEL_DOMAIN}`,
+    dashboard: `${dashboardSubdomain}.${TUNNEL_DOMAIN}`,
   };
 }
 
