@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
 import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
-import { getTraefikLabels } from './traefik.js';
+import { getBackendTraefikLabels, getDashboardTraefikLabels } from './traefik.js';
 
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
@@ -78,7 +78,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     }
 
     // Get Traefik labels if domain is set
-    const traefikLabels = getTraefikLabels(instance, domain);
+    const backendTraefikLabels = getBackendTraefikLabels(instance, domain);
 
     // Create and start backend container
     const backendContainer = await docker.createContainer({
@@ -95,7 +95,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         ExtraHosts: extraHosts,
       },
       Env: backendEnv,
-      Labels: traefikLabels,
+      Labels: backendTraefikLabels,
     });
 
     await backendContainer.start();
@@ -130,6 +130,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     }
 
     // Create and start dashboard container
+    const dashboardTraefikLabels = getDashboardTraefikLabels(instance, domain);
     const dashboardContainer = await docker.createContainer({
       Image: DASHBOARD_IMAGE,
       name: `convexer-dashboard-${instance.name}`,
@@ -147,7 +148,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         `NEXT_PUBLIC_PROVISION_HOST=${publicBackendUrl}`,
         `NEXT_PUBLIC_SITE_PROXY_HOST=${publicSiteProxyUrl}`,
       ],
-      Labels: traefikLabels,
+      Labels: dashboardTraefikLabels,
     });
 
     await dashboardContainer.start();

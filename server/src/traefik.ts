@@ -68,21 +68,18 @@ export async function getTraefikStatus(): Promise<{ running: boolean; container_
   }
 }
 
-export function getTraefikLabels(instance: Instance, domain: string): Record<string, string> {
+export function getBackendTraefikLabels (instance: Instance, domain: string): Record<string, string>
+{
   if (!domain) return {};
 
   // Parse extra_env to get custom subdomains
   let subdomain = instance.name;
-  let dashboardSubdomain = `${instance.name}-dash`;
 
   if (instance.extra_env) {
     try {
       const env = JSON.parse(instance.extra_env);
       if (env.SUBDOMAIN) {
         subdomain = env.SUBDOMAIN;
-      }
-      if (env.DASHBOARD_SUBDOMAIN) {
-        dashboardSubdomain = env.DASHBOARD_SUBDOMAIN;
       }
     } catch {
       // Use defaults if parsing fails
@@ -102,6 +99,31 @@ export function getTraefikLabels(instance: Instance, domain: string): Record<str
   labels[`traefik.http.routers.site-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.site-${instance.name}.service`] = `site-${instance.name}`;
   labels[`traefik.http.services.site-${instance.name}.loadbalancer.server.port`] = '3211';
+
+  return labels;
+}
+
+export function getDashboardTraefikLabels (instance: Instance, domain: string): Record<string, string>
+{
+  if (!domain) return {};
+
+  // Parse extra_env to get custom subdomains
+  let dashboardSubdomain = `${instance.name}-dash`;
+
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      if (env.DASHBOARD_SUBDOMAIN) {
+        dashboardSubdomain = env.DASHBOARD_SUBDOMAIN;
+      }
+    } catch {
+      // Use defaults if parsing fails
+    }
+  }
+
+  const labels: Record<string, string> = {
+    'traefik.enable': 'true',
+  };
 
   labels[`traefik.http.routers.dashboard-${instance.name}.rule`] = `Host(\`${dashboardSubdomain}.${domain}\`)`;
   labels[`traefik.http.routers.dashboard-${instance.name}.entrypoints`] = 'web';
