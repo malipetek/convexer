@@ -102,8 +102,19 @@ export function getTraefikLabels(instance: Instance, domain: string): Record<str
     'traefik.http.routers.dashboard.service': `dashboard-${instance.name}`,
   };
 
+  labels[`traefik.http.routers.backend-${instance.name}.rule`] = `Host(\`${subdomain}.${domain}\`)`;
+  labels[`traefik.http.routers.backend-${instance.name}.entrypoints`] = 'web';
+  labels[`traefik.http.routers.backend-${instance.name}.service`] = `backend-${instance.name}`;
   labels[`traefik.http.services.backend-${instance.name}.loadbalancer.server.port`] = '3210';
+
+  labels[`traefik.http.routers.site-${instance.name}.rule`] = `Host(\`${subdomain}-site.${domain}\`)`;
+  labels[`traefik.http.routers.site-${instance.name}.entrypoints`] = 'web';
+  labels[`traefik.http.routers.site-${instance.name}.service`] = `site-${instance.name}`;
   labels[`traefik.http.services.site-${instance.name}.loadbalancer.server.port`] = '3211';
+
+  labels[`traefik.http.routers.dashboard-${instance.name}.rule`] = `Host(\`${dashboardSubdomain}.${domain}\`)`;
+  labels[`traefik.http.routers.dashboard-${instance.name}.entrypoints`] = 'web';
+  labels[`traefik.http.routers.dashboard-${instance.name}.service`] = `dashboard-${instance.name}`;
   labels[`traefik.http.services.dashboard-${instance.name}.loadbalancer.server.port`] = '6791';
 
   return labels;
