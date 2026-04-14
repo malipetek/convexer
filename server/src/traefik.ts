@@ -71,17 +71,35 @@ export async function getTraefikStatus(): Promise<{ running: boolean; container_
 export function getTraefikLabels(instance: Instance, domain: string): Record<string, string> {
   if (!domain) return {};
 
+  // Parse extra_env to get custom subdomains
+  let subdomain = instance.name;
+  let dashboardSubdomain = `${instance.name}-dash`;
+
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      if (env.SUBDOMAIN) {
+        subdomain = env.SUBDOMAIN;
+      }
+      if (env.DASHBOARD_SUBDOMAIN) {
+        dashboardSubdomain = env.DASHBOARD_SUBDOMAIN;
+      }
+    } catch {
+      // Use defaults if parsing fails
+    }
+  }
+
   return {
     'traefik.enable': 'true',
-    'traefik.http.routers.backend.rule': `Host(\`${instance.name}.${domain}\`)`,
+    'traefik.http.routers.backend.rule': `Host(\`${subdomain}.${domain}\`)`,
     'traefik.http.routers.backend.entrypoints': 'web',
     'traefik.http.services.backend.loadbalancer.server.port': '3210',
 
-    'traefik.http.routers.site.rule': `Host(\`${instance.name}-site.${domain}\`)`,
+    'traefik.http.routers.site.rule': `Host(\`${subdomain}-site.${domain}\`)`,
     'traefik.http.routers.site.entrypoints': 'web',
     'traefik.http.services.site.loadbalancer.server.port': '3211',
 
-    'traefik.http.routers.dashboard.rule': `Host(\`${instance.name}-dash.${domain}\`)`,
+    'traefik.http.routers.dashboard.rule': `Host(\`${dashboardSubdomain}.${domain}\`)`,
     'traefik.http.routers.dashboard.entrypoints': 'web',
     'traefik.http.services.dashboard.loadbalancer.server.port': '6791',
   };
