@@ -35,7 +35,7 @@ app.use(express.json());
 // Auth middleware — skip if AUTH_PASSWORD not set
 app.use('/api', (req, res, next) => {
   if (!isAuthEnabled()) return next();
-  if (req.path === '/login' || req.path === '/health' || req.path.startsWith('/version')) return next();
+  if (req.path === '/login' || req.path === '/health' || req.path.startsWith('/version') || req.path.startsWith('/settings')) return next();
 
   const auth = req.headers.authorization;
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -46,27 +46,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Global settings endpoints (public, no auth)
-app.get('/api/settings', (_req, res) =>
-{
-  res.json({ hostname: process.env.DOMAIN || '' });
-});
-
-app.post('/api/settings', (req, res) =>
-{
-  console.log('Saving settings:', req.body);
-  const { hostname } = req.body;
-  if (hostname) {
-    process.env.DOMAIN = hostname;
-    console.log('Hostname set to:', hostname);
-  }
-  res.json({ success: true, hostname });
-});
-
-// API routes
-app.use('/api', router);
-
-// Version endpoints (public, no auth)
+// Public endpoints (no auth required) — registered BEFORE router
 app.get('/api/version', (_req, res) =>
 {
   res.json({ current_version: '0.1.0' });
@@ -75,10 +55,9 @@ app.get('/api/version', (_req, res) =>
 app.get('/api/version/check', async (_req, res) =>
 {
   try {
-    const LATEST_VERSION = '0.2.0';
     res.json({
       current_version: '0.1.0',
-      latest_version: LATEST_VERSION,
+      latest_version: '0.2.0',
       has_update: true,
     });
   } catch (err: any) {
@@ -89,12 +68,29 @@ app.get('/api/version/check', async (_req, res) =>
 app.post('/api/version/update', async (_req, res) =>
 {
   try {
-    console.log('Update triggered - would pull from main branch');
+    console.log('Update triggered');
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.get('/api/settings', (_req, res) =>
+{
+  res.json({ hostname: process.env.DOMAIN || '' });
+});
+
+app.post('/api/settings', (req, res) =>
+{
+  const { hostname } = req.body;
+  if (hostname) {
+    process.env.DOMAIN = hostname;
+  }
+  res.json({ success: true, hostname: hostname || '' });
+});
+
+// API routes
+app.use('/api', router);
 
 // Serve static client build in production
 const clientDist = path.join(__dirname, '../../client/dist');
