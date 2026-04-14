@@ -74,21 +74,15 @@ export function getTraefikLabels(instance: Instance, domain: string): Record<str
   return {
     'traefik.enable': 'true',
     'traefik.http.routers.backend.rule': `Host(\`${instance.name}.${domain}\`)`,
-    'traefik.http.routers.backend.entrypoints': 'websecure',
-    'traefik.http.routers.backend.tls': 'true',
-    'traefik.http.routers.backend.tls.certresolver': 'le',
+    'traefik.http.routers.backend.entrypoints': 'web',
     'traefik.http.services.backend.loadbalancer.server.port': '3210',
 
     'traefik.http.routers.site.rule': `Host(\`${instance.name}-site.${domain}\`)`,
-    'traefik.http.routers.site.entrypoints': 'websecure',
-    'traefik.http.routers.site.tls': 'true',
-    'traefik.http.routers.site.tls.certresolver': 'le',
+    'traefik.http.routers.site.entrypoints': 'web',
     'traefik.http.services.site.loadbalancer.server.port': '3211',
 
     'traefik.http.routers.dashboard.rule': `Host(\`${instance.name}-dash.${domain}\`)`,
-    'traefik.http.routers.dashboard.entrypoints': 'websecure',
-    'traefik.http.routers.dashboard.tls': 'true',
-    'traefik.http.routers.dashboard.tls.certresolver': 'le',
+    'traefik.http.routers.dashboard.entrypoints': 'web',
     'traefik.http.services.dashboard.loadbalancer.server.port': '6791',
   };
 }
