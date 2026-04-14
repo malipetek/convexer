@@ -19,6 +19,8 @@ export async function ensureTraefik(): Promise<void> {
   }
 
   try {
+    console.log('Pulling Traefik image...');
+    await docker.pull('traefik:latest');
     console.log('Creating Traefik container...');
     await docker.createContainer({
       Image: 'traefik:latest',
