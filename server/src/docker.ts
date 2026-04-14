@@ -305,8 +305,6 @@ export async function getContainerLogs(containerId: string, tail: number = 200):
 export async function syncInstanceStatuses(): Promise<void> {
   const instances = getAllInstances();
   for (const instance of instances) {
-    if (instance.status === 'creating') continue; // Don't interfere with creation
-
     let backendRunning = false;
     if (instance.backend_container_id) {
       try {
@@ -320,9 +318,10 @@ export async function syncInstanceStatuses(): Promise<void> {
     const expectedStatus = instance.status;
     const actualStatus = backendRunning ? 'running' : 'stopped';
 
-    if (expectedStatus !== actualStatus && expectedStatus !== 'error') {
+    // Sync if status differs, even for creating/error states if container is actually running
+    if (expectedStatus !== actualStatus) {
       console.log(`Syncing instance ${instance.name}: ${expectedStatus} → ${actualStatus}`);
-      updateInstance(instance.id, { status: actualStatus });
+      updateInstance(instance.id, { status: actualStatus, error_message: null });
     }
   }
 }
