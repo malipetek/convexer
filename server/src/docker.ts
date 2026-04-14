@@ -184,15 +184,17 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
 
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
+  let lastError: string = '';
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(url);
       if (res.ok || res.status === 404) return; // Backend responds
-    } catch {
-      // Not ready yet
+    } catch (err: any) {
+      lastError = err.message;
     }
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 2000));
   }
+  console.log(`Health check failed for ${url} after ${timeoutMs}ms. Last error: ${lastError}`);
   throw new Error(`Health check timeout for ${url}`);
 }
 
@@ -300,11 +302,12 @@ export async function getContainerLogs(containerId: string, tail: number = 200):
     timestamps: true,
   });
   return logs.toString('utf-8');
-}
 
 export async function syncInstanceStatuses(): Promise<void> {
   const instances = getAllInstances();
   for (const instance of instances) {
+    if (instance.status === 'creating') continue; // Don't interfere with creation
+
     let backendRunning = false;
     if (instance.backend_container_id) {
       try {
@@ -318,10 +321,9 @@ export async function syncInstanceStatuses(): Promise<void> {
     const expectedStatus = instance.status;
     const actualStatus = backendRunning ? 'running' : 'stopped';
 
-    // Sync if status differs, even for creating/error states if container is actually running
-    if (expectedStatus !== actualStatus) {
+    if (expectedStatus !== actualStatus && expectedStatus !== 'error') {
       console.log(`Syncing instance ${instance.name}: ${expectedStatus} → ${actualStatus}`);
-      updateInstance(instance.id, { status: actualStatus, error_message: null });
+      updateInstance(instance.id, { status: actualStatus });
     }
   }
 }
