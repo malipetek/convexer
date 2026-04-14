@@ -21,7 +21,7 @@ export async function ensureTraefik(): Promise<void> {
   try {
     console.log('Creating Traefik container...');
     await docker.createContainer({
-      Image: 'traefik:v3',
+      Image: 'traefik:latest',
       name: TRAEFIK_CONTAINER_NAME,
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },
