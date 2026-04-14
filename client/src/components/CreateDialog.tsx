@@ -14,6 +14,8 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
   const [maxConcurrentMutations, setMaxConcurrentMutations] = useState('');
   const [maxConcurrentQueries, setMaxConcurrentQueries] = useState('');
   const [rustLog, setRustLog] = useState('info');
+  const [subdomain, setSubdomain] = useState('');
+  const [dashboardSubdomain, setDashboardSubdomain] = useState('');
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -24,6 +26,8 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
       if (maxConcurrentMutations) extraEnv.APPLICATION_MAX_CONCURRENT_MUTATIONS = maxConcurrentMutations;
       if (maxConcurrentQueries) extraEnv.APPLICATION_MAX_CONCURRENT_QUERIES = maxConcurrentQueries;
       if (rustLog !== 'info') extraEnv.RUST_LOG = rustLog;
+      if (subdomain) extraEnv.SUBDOMAIN = subdomain;
+      if (dashboardSubdomain) extraEnv.DASHBOARD_SUBDOMAIN = dashboardSubdomain;
       return api.createInstance(name || undefined, Object.keys(extraEnv).length > 0 ? extraEnv : undefined);
     },
     onSuccess: () => {
@@ -116,6 +120,32 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
                     <SelectItem value="trace">trace</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="subdomain">Instance Subdomain (optional)</Label>
+                <Input
+                  id="subdomain"
+                  value={subdomain}
+                  onChange={e => setSubdomain(e.target.value)}
+                  placeholder="swift-bear-123"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty to auto-generate a random subdomain
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dashboardSubdomain">Dashboard Subdomain (optional)</Label>
+                <Input
+                  id="dashboardSubdomain"
+                  value={dashboardSubdomain}
+                  onChange={e => setDashboardSubdomain(e.target.value)}
+                  placeholder="calm-cat-456"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty to auto-generate a random subdomain for the dashboard
+                </p>
               </div>
             </div>
           )}

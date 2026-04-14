@@ -11,6 +11,19 @@ import { getTraefikStatus } from './traefik.js';
 
 const docker = new Docker();
 
+// Generate a random subdomain
+function generateSubdomain (): string
+{
+  const adjectives = ['swift', 'bright', 'calm', 'eager', 'fresh', 'gentle', 'happy', 'jolly', 'kind', 'lively', 'merry', 'nice', 'peaceful', 'quick', 'smart', 'witty'];
+  const nouns = ['bear', 'cat', 'deer', 'eagle', 'fox', 'goose', 'hawk', 'lion', 'monkey', 'owl', 'panda', 'rabbit', 'tiger', 'wolf', 'zebra'];
+
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const num = Math.floor(Math.random() * 999);
+
+  return `${adj}-${noun}-${num}`;
+}
+
 const router = Router();
 
 // Login
@@ -77,6 +90,15 @@ router.post('/instances', (req: Request, res: Response) => {
   const instanceSecret = crypto.randomBytes(32).toString('hex');
   const ports = allocatePorts();
 
+  // Auto-generate subdomains if not provided
+  const finalExtraEnv = extra_env || {};
+  if (!finalExtraEnv.SUBDOMAIN) {
+    finalExtraEnv.SUBDOMAIN = generateSubdomain();
+  }
+  if (!finalExtraEnv.DASHBOARD_SUBDOMAIN) {
+    finalExtraEnv.DASHBOARD_SUBDOMAIN = generateSubdomain();
+  }
+
   const instance = createInstance({
     id,
     name: instanceName,
@@ -87,7 +109,7 @@ router.post('/instances', (req: Request, res: Response) => {
     volume_name: `convexer-${instanceName}`,
     instance_name: instanceName,
     instance_secret: instanceSecret,
-    extra_env: extra_env ? JSON.stringify(extra_env) : null,
+    extra_env: JSON.stringify(finalExtraEnv),
   });
 
   // Start creation in background

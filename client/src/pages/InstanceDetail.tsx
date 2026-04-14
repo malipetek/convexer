@@ -391,15 +391,28 @@ function InstanceSettings({ instance }: { instance: any }) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="subdomain">Subdomain (optional)</Label>
+          <Label htmlFor="subdomain">Instance Subdomain (optional)</Label>
           <Input
             id="subdomain"
-            placeholder="my-instance"
+            placeholder="swift-bear-123"
             value={extraEnv.SUBDOMAIN || ''}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('SUBDOMAIN', e.target.value)}
           />
           <p className="text-sm text-muted-foreground">
-            Leave empty to use the instance name as subdomain
+            Leave empty to auto-generate a random subdomain
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="dashboard-subdomain">Dashboard Subdomain (optional)</Label>
+          <Input
+            id="dashboard-subdomain"
+            placeholder="calm-cat-456"
+            value={extraEnv.DASHBOARD_SUBDOMAIN || ''}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DASHBOARD_SUBDOMAIN', e.target.value)}
+          />
+          <p className="text-sm text-muted-foreground">
+            Leave empty to auto-generate a random subdomain for the dashboard
           </p>
         </div>
 
