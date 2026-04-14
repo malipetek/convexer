@@ -21,6 +21,7 @@ export default function InstanceDetail() {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [metricsHistory, setMetricsHistory] = useState<Array<{ time: string; cpu: number; memory: number }>>([]);
+  const [hostname, setHostname] = useState('');
 
   const { data: instance, isLoading } = useQuery({
     queryKey: ['instance', id],
@@ -33,6 +34,18 @@ export default function InstanceDetail() {
     refetchInterval: 5000,
     enabled: instance?.status === 'running',
   });
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.getSettings(),
+  });
+
+  useEffect(() =>
+  {
+    if (settings) {
+      setHostname(settings.hostname || '');
+    }
+  }, [settings]);
 
   useEffect(() => {
     if (stats) {
@@ -198,7 +211,7 @@ export default function InstanceDetail() {
                         } catch {
                           return instance.name;
                         }
-                      })()}.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      })()}.${hostname || 'convexer.example.com'}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -211,7 +224,7 @@ export default function InstanceDetail() {
                         } catch {
                           return instance.name;
                         }
-                      })()}.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                      })()}.{hostname || 'convexer.example.com'}
                     </a>
                   </div>
                   <div className="flex items-center gap-2">
@@ -225,7 +238,7 @@ export default function InstanceDetail() {
                         } catch {
                           return instance.name;
                         }
-                      })()}-site.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      })()}-site.${hostname || 'convexer.example.com'}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -238,7 +251,7 @@ export default function InstanceDetail() {
                         } catch {
                           return instance.name;
                         }
-                      })()}-site.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                      })()}-site.{hostname || 'convexer.example.com'}
                     </a>
                   </div>
                   <div className="flex items-center gap-2">
@@ -252,7 +265,7 @@ export default function InstanceDetail() {
                         } catch {
                           return `${instance.name}-dash`;
                         }
-                      })()}.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      })()}.${hostname || 'convexer.example.com'}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -265,7 +278,7 @@ export default function InstanceDetail() {
                         } catch {
                           return `${instance.name}-dash`;
                         }
-                      })()}.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                      })()}.{hostname || 'convexer.example.com'}
                     </a>
                   </div>
                 </CardContent>

@@ -4,16 +4,21 @@ services:
     container_name: convexer
     restart: unless-stopped
     ports:
-      - "80:4000"
+      - "4000:4000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - convexer-data:/app/server/data
     environment:
       - DATA_DIR=/app/server/data
-      - DOMAIN=${DOMAIN:-}
+      - DOMAIN=${DOMAIN:-malipetek.online}
       - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
       - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.convexer.rule=Host(`malipetek.online`)
+      - traefik.http.routers.convexer.entrypoints=web
+      - traefik.http.services.convexer.loadbalancer.server.port=4000
     networks:
       - convexer-net
 
