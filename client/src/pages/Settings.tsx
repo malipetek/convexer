@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -15,9 +15,33 @@ export default function Settings() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updating, setUpdating] = useState(false);
 
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.getSettings(),
+  });
+
+  useEffect(() =>
+  {
+    if (settings) {
+      setHostname(settings.hostname || '');
+    }
+  }, [settings]);
+
   const { data: versionInfo } = useQuery({
     queryKey: ['version'],
     queryFn: () => api.getVersion(),
+  });
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: (hostname: string) => api.saveSettings(hostname),
+    onSuccess: () =>
+    {
+      alert('Settings saved');
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to save settings');
+    },
   });
 
   const updateMutation = useMutation({
@@ -37,10 +61,7 @@ export default function Settings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // TODO: Add API call to save global settings
-      alert('Settings saved');
-    } catch (err: any) {
-      alert(err.message || 'Failed to save settings');
+      await saveSettingsMutation.mutateAsync(hostname);
     } finally {
       setSaving(false);
     }

@@ -225,12 +225,25 @@ export default function InstanceDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Subdomain Configuration</CardTitle>
+                  <CardTitle>Subdomain URLs</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Instance:</span>
-                    <span className="text-sm font-mono">
+                    <span className="text-sm text-muted-foreground w-32">Backend:</span>
+                    <a
+                      href={`https://${(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.SUBDOMAIN || instance.name;
+                        } catch {
+                          return instance.name;
+                        }
+                      })()}.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline font-mono"
+                    >
                       {(() =>
                       {
                         try {
@@ -239,12 +252,52 @@ export default function InstanceDetail() {
                         } catch {
                           return instance.name;
                         }
-                      })()}
-                    </span>
+                      })()}.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground w-32">Site:</span>
+                    <a
+                      href={`https://${(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.SUBDOMAIN || instance.name;
+                        } catch {
+                          return instance.name;
+                        }
+                      })()}-site.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline font-mono"
+                    >
+                      {(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.SUBDOMAIN || instance.name;
+                        } catch {
+                          return instance.name;
+                        }
+                      })()}-site.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                    </a>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground w-32">Dashboard:</span>
-                    <span className="text-sm font-mono">
+                    <a
+                      href={`https://${(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.DASHBOARD_SUBDOMAIN || `${instance.name}-dash`;
+                        } catch {
+                          return `${instance.name}-dash`;
+                        }
+                      })()}.${process.env.VITE_HOSTNAME || 'convexer.example.com'}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline font-mono"
+                    >
                       {(() =>
                       {
                         try {
@@ -253,8 +306,8 @@ export default function InstanceDetail() {
                         } catch {
                           return `${instance.name}-dash`;
                         }
-                      })()}
-                    </span>
+                      })()}.{process.env.VITE_HOSTNAME || 'convexer.example.com'}
+                    </a>
                   </div>
                 </CardContent>
               </Card>

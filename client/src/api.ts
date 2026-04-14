@@ -82,4 +82,9 @@ export const api = {
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),
   checkUpdate: () => request<{ current_version: string; latest_version: string; has_update: boolean }>('/version/check'),
   updateApp: () => request<{ success: boolean }>('/version/update', { method: 'POST' }),
+  getSettings: () => request<{ hostname: string }>('/settings'),
+  saveSettings: (hostname: string) => request<{ success: boolean; hostname: string }>('/settings', {
+    method: 'POST',
+    body: JSON.stringify({ hostname }),
+  }),
 };

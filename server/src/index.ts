@@ -79,6 +79,21 @@ app.post('/api/version/update', async (_req, res) =>
   }
 });
 
+// Global settings endpoints
+app.get('/api/settings', (_req, res) =>
+{
+  res.json({ hostname: process.env.DOMAIN || '' });
+});
+
+app.post('/api/settings', (req, res) =>
+{
+  const { hostname } = req.body;
+  if (hostname) {
+    process.env.DOMAIN = hostname;
+  }
+  res.json({ success: true, hostname });
+});
+
 // Serve static client build in production
 const clientDist = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
