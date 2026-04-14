@@ -49,6 +49,36 @@ app.use('/api', (req, res, next) => {
 // API routes
 app.use('/api', router);
 
+// Version endpoints (public, no auth)
+app.get('/api/version', (_req, res) =>
+{
+  res.json({ current_version: '0.1.0' });
+});
+
+app.get('/api/version/check', async (_req, res) =>
+{
+  try {
+    const LATEST_VERSION = '0.2.0';
+    res.json({
+      current_version: '0.1.0',
+      latest_version: LATEST_VERSION,
+      has_update: true,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/version/update', async (_req, res) =>
+{
+  try {
+    console.log('Update triggered - would pull from main branch');
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve static client build in production
 const clientDist = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
