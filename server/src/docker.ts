@@ -117,7 +117,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     updateInstance(instance.id, { backend_container_id: backendContainer.id });
 
     // Wait for backend to be healthy
-    await waitForHealth(`http://localhost:${instance.backend_port}`, 60_000);
+    await waitForHealth(`http://localhost:${instance.backend_port}`, 300_000);
 
     // Generate admin key
     const adminKey = await generateAdminKey(backendContainer, instance.instance_name, instance.instance_secret);
