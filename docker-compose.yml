@@ -45,4 +45,6 @@ volumes:
 
 networks:
   convexer-net:
+    name: convexer-net
     driver: bridge
+    external: true
