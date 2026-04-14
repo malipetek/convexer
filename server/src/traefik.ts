@@ -93,14 +93,17 @@ export function getTraefikLabels(instance: Instance, domain: string): Record<str
     'traefik.enable': 'true',
     'traefik.http.routers.backend.rule': `Host(\`${subdomain}.${domain}\`)`,
     'traefik.http.routers.backend.entrypoints': 'web',
+    'traefik.http.routers.backend.service': `backend-${instance.name}`,
     'traefik.http.services.backend.loadbalancer.server.port': '3210',
 
     'traefik.http.routers.site.rule': `Host(\`${subdomain}-site.${domain}\`)`,
     'traefik.http.routers.site.entrypoints': 'web',
+    'traefik.http.routers.site.service': `site-${instance.name}`,
     'traefik.http.services.site.loadbalancer.server.port': '3211',
 
     'traefik.http.routers.dashboard.rule': `Host(\`${dashboardSubdomain}.${domain}\`)`,
     'traefik.http.routers.dashboard.entrypoints': 'web',
+    'traefik.http.routers.dashboard.service': `dashboard-${instance.name}`,
     'traefik.http.services.dashboard.loadbalancer.server.port': '6791',
   };
 }
