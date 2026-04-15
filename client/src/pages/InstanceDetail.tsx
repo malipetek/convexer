@@ -207,11 +207,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.SUBDOMAIN || instance.name;
+                          return env.BACKEND_DOMAIN || `${instance.name}.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return instance.name;
+                          return `${instance.name}.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}.${hostname || 'convexer.example.com'}`}
+                      })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -220,11 +220,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.SUBDOMAIN || instance.name;
+                          return env.BACKEND_DOMAIN || `${instance.name}.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return instance.name;
+                          return `${instance.name}.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}.{hostname || 'convexer.example.com'}
+                      })()}
                     </a>
                   </div>
                   <div className="flex items-center gap-2">
@@ -234,11 +234,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.SUBDOMAIN || instance.name;
+                          return env.SITE_DOMAIN || `${instance.name}-site.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return instance.name;
+                          return `${instance.name}-site.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}-site.${hostname || 'convexer.example.com'}`}
+                      })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -247,11 +247,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.SUBDOMAIN || instance.name;
+                          return env.SITE_DOMAIN || `${instance.name}-site.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return instance.name;
+                          return `${instance.name}-site.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}-site.{hostname || 'convexer.example.com'}
+                      })()}
                     </a>
                   </div>
                   <div className="flex items-center gap-2">
@@ -261,11 +261,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.DASHBOARD_SUBDOMAIN || `${instance.name}-dash`;
+                          return env.DASHBOARD_DOMAIN || `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return `${instance.name}-dash`;
+                          return `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}.${hostname || 'convexer.example.com'}`}
+                      })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
@@ -274,11 +274,11 @@ export default function InstanceDetail() {
                       {
                         try {
                           const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                          return env.DASHBOARD_SUBDOMAIN || `${instance.name}-dash`;
+                          return env.DASHBOARD_DOMAIN || `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
                         } catch {
-                          return `${instance.name}-dash`;
+                          return `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}.{hostname || 'convexer.example.com'}
+                      })()}
                     </a>
                   </div>
                 </CardContent>
@@ -470,41 +470,41 @@ function InstanceSettings({ instance }: { instance: any }) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="subdomain">Instance Subdomain (optional)</Label>
+          <Label htmlFor="backend-domain">Backend Custom Domain (optional)</Label>
           <Input
-            id="subdomain"
-            placeholder="swift-bear-123"
-            value={extraEnv.SUBDOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('SUBDOMAIN', e.target.value)}
+            id="backend-domain"
+            placeholder="myapp.example.com"
+            value={extraEnv.BACKEND_DOMAIN || ''}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('BACKEND_DOMAIN', e.target.value)}
           />
           <p className="text-sm text-muted-foreground">
-            Leave empty to auto-generate a random subdomain
+            Set a custom domain for the backend (leave empty for default subdomain)
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="dashboard-subdomain">Dashboard Subdomain (optional)</Label>
+          <Label htmlFor="site-domain">Site Custom Domain (optional)</Label>
           <Input
-            id="dashboard-subdomain"
-            placeholder="calm-cat-456"
-            value={extraEnv.DASHBOARD_SUBDOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DASHBOARD_SUBDOMAIN', e.target.value)}
+            id="site-domain"
+            placeholder="site.example.com"
+            value={extraEnv.SITE_DOMAIN || ''}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('SITE_DOMAIN', e.target.value)}
           />
           <p className="text-sm text-muted-foreground">
-            Leave empty to auto-generate a random subdomain for the dashboard
+            Set a custom domain for the site (leave empty for default subdomain)
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="custom-domain">Custom Domain (optional)</Label>
+          <Label htmlFor="dashboard-domain">Dashboard Custom Domain (optional)</Label>
           <Input
-            id="custom-domain"
-            placeholder="my-app.example.com"
-            value={extraEnv.CUSTOM_DOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('CUSTOM_DOMAIN', e.target.value)}
+            id="dashboard-domain"
+            placeholder="dash.example.com"
+            value={extraEnv.DASHBOARD_DOMAIN || ''}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DASHBOARD_DOMAIN', e.target.value)}
           />
           <p className="text-sm text-muted-foreground">
-            Set a custom domain for this instance (requires DNS configuration)
+            Set a custom domain for the dashboard (leave empty for default subdomain)
           </p>
         </div>
 

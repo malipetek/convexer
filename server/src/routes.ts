@@ -79,11 +79,14 @@ router.post('/instances', (req: Request, res: Response) => {
 
   // Auto-generate subdomains if not provided
   const finalExtraEnv = extra_env || {};
-  if (!finalExtraEnv.SUBDOMAIN) {
-    finalExtraEnv.SUBDOMAIN = instanceName;
+  if (!finalExtraEnv.BACKEND_DOMAIN) {
+    finalExtraEnv.BACKEND_DOMAIN = instanceName;
   }
-  if (!finalExtraEnv.DASHBOARD_SUBDOMAIN) {
-    finalExtraEnv.DASHBOARD_SUBDOMAIN = `${instanceName}-dash`;
+  if (!finalExtraEnv.SITE_DOMAIN) {
+    finalExtraEnv.SITE_DOMAIN = `${instanceName}-site`;
+  }
+  if (!finalExtraEnv.DASHBOARD_DOMAIN) {
+    finalExtraEnv.DASHBOARD_DOMAIN = `${instanceName}-dash`;
   }
 
   const instance = createInstance({

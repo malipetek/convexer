@@ -72,14 +72,18 @@ export function getBackendTraefikLabels (instance: Instance, domain: string): Re
 {
   if (!domain) return {};
 
-  // Parse extra_env to get custom subdomains
-  let subdomain = instance.name;
+  // Parse extra_env to get custom domains
+  let backendDomain = `${instance.name}.${domain}`;
+  let siteDomain = `${instance.name}-site.${domain}`;
 
   if (instance.extra_env) {
     try {
       const env = JSON.parse(instance.extra_env);
-      if (env.SUBDOMAIN) {
-        subdomain = env.SUBDOMAIN;
+      if (env.BACKEND_DOMAIN) {
+        backendDomain = env.BACKEND_DOMAIN;
+      }
+      if (env.SITE_DOMAIN) {
+        siteDomain = env.SITE_DOMAIN;
       }
     } catch {
       // Use defaults if parsing fails
@@ -90,12 +94,12 @@ export function getBackendTraefikLabels (instance: Instance, domain: string): Re
     'traefik.enable': 'true',
   };
 
-  labels[`traefik.http.routers.backend-${instance.name}.rule`] = `Host(\`${subdomain}.${domain}\`)`;
+  labels[`traefik.http.routers.backend-${instance.name}.rule`] = `Host(\`${backendDomain}\`)`;
   labels[`traefik.http.routers.backend-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.backend-${instance.name}.service`] = `backend-${instance.name}`;
   labels[`traefik.http.services.backend-${instance.name}.loadbalancer.server.port`] = '3210';
 
-  labels[`traefik.http.routers.site-${instance.name}.rule`] = `Host(\`${subdomain}-site.${domain}\`)`;
+  labels[`traefik.http.routers.site-${instance.name}.rule`] = `Host(\`${siteDomain}\`)`;
   labels[`traefik.http.routers.site-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.site-${instance.name}.service`] = `site-${instance.name}`;
   labels[`traefik.http.services.site-${instance.name}.loadbalancer.server.port`] = '3211';
@@ -107,14 +111,14 @@ export function getDashboardTraefikLabels (instance: Instance, domain: string): 
 {
   if (!domain) return {};
 
-  // Parse extra_env to get custom subdomains
-  let dashboardSubdomain = `${instance.name}-dash`;
+  // Parse extra_env to get custom domain
+  let dashboardDomain = `${instance.name}-dash.${domain}`;
 
   if (instance.extra_env) {
     try {
       const env = JSON.parse(instance.extra_env);
-      if (env.DASHBOARD_SUBDOMAIN) {
-        dashboardSubdomain = env.DASHBOARD_SUBDOMAIN;
+      if (env.DASHBOARD_DOMAIN) {
+        dashboardDomain = env.DASHBOARD_DOMAIN;
       }
     } catch {
       // Use defaults if parsing fails
@@ -125,7 +129,7 @@ export function getDashboardTraefikLabels (instance: Instance, domain: string): 
     'traefik.enable': 'true',
   };
 
-  labels[`traefik.http.routers.dashboard-${instance.name}.rule`] = `Host(\`${dashboardSubdomain}.${domain}\`)`;
+  labels[`traefik.http.routers.dashboard-${instance.name}.rule`] = `Host(\`${dashboardDomain}\`)`;
   labels[`traefik.http.routers.dashboard-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.dashboard-${instance.name}.service`] = `dashboard-${instance.name}`;
   labels[`traefik.http.services.dashboard-${instance.name}.loadbalancer.server.port`] = '6791';
