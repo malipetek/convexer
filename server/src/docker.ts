@@ -122,6 +122,13 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     // Get Traefik labels if domain is set
     const backendTraefikLabels = getBackendTraefikLabels(instance, domain);
 
+    // Build backend command - use postgres-v5 driver with no-ssl flag when POSTGRES_URL is set
+    const backendCmd = [
+      '--db', 'postgres-v5',
+      '--do-not-require-ssl',
+      `postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432`,
+    ];
+
     // Create and start backend container
     const backendContainer = await docker.createContainer({
       Image: BACKEND_IMAGE,
@@ -136,6 +143,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
         RestartPolicy: { Name: 'unless-stopped' },
         ExtraHosts: extraHosts,
       },
+      Cmd: backendCmd,
       Env: backendEnv,
       Labels: backendTraefikLabels,
     });
