@@ -128,7 +128,6 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       '--do-not-require-ssl',
       '--instance-name', instance.instance_name,
       '--instance-secret', instance.instance_secret,
-      '--',
       `postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432`,
     ];
 
