@@ -15,10 +15,14 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'creating',
     backend_container_id TEXT,
     dashboard_container_id TEXT,
+    postgres_container_id TEXT,
     backend_port INTEGER NOT NULL,
     site_proxy_port INTEGER NOT NULL,
     dashboard_port INTEGER NOT NULL,
+    postgres_port INTEGER NOT NULL,
     volume_name TEXT NOT NULL,
+    postgres_volume_name TEXT NOT NULL,
+    postgres_password TEXT NOT NULL,
     admin_key TEXT,
     instance_name TEXT NOT NULL,
     instance_secret TEXT NOT NULL,
@@ -40,6 +44,27 @@ try {
   }
 }
 
+// Migration: add PostgreSQL columns if they don't exist
+const postgresColumns = [
+  'postgres_container_id TEXT',
+  'postgres_port INTEGER NOT NULL DEFAULT 5432',
+  'postgres_volume_name TEXT NOT NULL DEFAULT ""',
+  'postgres_password TEXT NOT NULL DEFAULT ""'
+];
+
+for (const columnDef of postgresColumns) {
+  const columnName = columnDef.split(' ')[0];
+  try {
+    db.exec(`ALTER TABLE instances ADD COLUMN ${columnDef}`);
+  } catch (err: any) {
+    if (err.message.includes('duplicate column')) {
+      // Column already exists, that's fine
+    } else {
+      console.warn(`Failed to add ${columnName} column:`, err.message);
+    }
+  }
+}
+
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all() as Instance[];
 }
@@ -48,10 +73,11 @@ export function getInstance(id: string): Instance | undefined {
   return db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance | undefined;
 }
 
-export function createInstance(instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id'>): Instance {
+export function createInstance (instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id' | 'postgres_container_id'>): Instance
+{
   const stmt = db.prepare(`
-    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, volume_name, instance_name, instance_secret, extra_env)
-    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @volume_name, @instance_name, @instance_secret, @extra_env)
+    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, postgres_port, volume_name, postgres_volume_name, postgres_password, instance_name, instance_secret, extra_env)
+    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @postgres_port, @volume_name, @postgres_volume_name, @postgres_password, @instance_name, @instance_secret, @extra_env)
   `);
   stmt.run(instance);
   return getInstance(instance.id)!;
@@ -59,8 +85,8 @@ export function createInstance(instance: Omit<Instance, 'created_at' | 'updated_
 
 export function updateInstance(id: string, updates: Partial<Instance>): Instance | undefined {
   const allowed = [
-    'status', 'backend_container_id', 'dashboard_container_id',
-    'admin_key', 'error_message', 'extra_env'
+    'status', 'backend_container_id', 'dashboard_container_id', 'postgres_container_id',
+    'admin_key', 'error_message', 'extra_env', 'postgres_password'
   ];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return getInstance(id);
@@ -76,8 +102,9 @@ export function deleteInstance(id: string): boolean {
   return result.changes > 0;
 }
 
-export function allocatePorts(): { backendPort: number; siteProxyPort: number; dashboardPort: number } {
-  const instances = db.prepare('SELECT backend_port, dashboard_port FROM instances ORDER BY backend_port ASC').all() as Pick<Instance, 'backend_port' | 'dashboard_port'>[];
+export function allocatePorts (): { backendPort: number; siteProxyPort: number; dashboardPort: number; postgresPort: number }
+{
+  const instances = db.prepare('SELECT backend_port, dashboard_port, postgres_port FROM instances ORDER BY backend_port ASC').all() as Pick<Instance, 'backend_port' | 'dashboard_port' | 'postgres_port'>[];
 
   let backendPort = 3220;
   for (const inst of instances) {
@@ -94,10 +121,19 @@ export function allocatePorts(): { backendPort: number; siteProxyPort: number; d
     }
   }
 
+  const postgresInstances = db.prepare('SELECT postgres_port FROM instances ORDER BY postgres_port ASC').all() as Pick<Instance, 'postgres_port'>[];
+  let postgresPort = 5432;
+  for (const inst of postgresInstances) {
+    if (inst.postgres_port === postgresPort) {
+      postgresPort += 1;
+    }
+  }
+
   return {
     backendPort,
     siteProxyPort: backendPort + 1,
     dashboardPort,
+    postgresPort,
   };
 }
 

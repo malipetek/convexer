@@ -10,9 +10,10 @@ const NETWORK_NAME = 'convexer-net';
 
 const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
 const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
+const POSTGRES_IMAGE = 'postgres:16-alpine';
 
 export async function ensureImages(): Promise<void> {
-  for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE]) {
+  for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE, POSTGRES_IMAGE]) {
     try {
       await docker.getImage(image).inspect();
     } catch {
@@ -31,13 +32,53 @@ export async function ensureImages(): Promise<void> {
 export async function createAndStartInstance(instance: Instance): Promise<void> {
   try {
     const volumeName = instance.volume_name;
+    const postgresVolumeName = instance.postgres_volume_name;
 
-    // Create volume
+    // Create volumes
     await docker.createVolume({ Name: volumeName });
+    await docker.createVolume({ Name: postgresVolumeName });
 
     const isLinux = process.platform === 'linux';
     const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
     const domain = process.env.DOMAIN || '';
+
+    // Generate PostgreSQL password if not set
+    const postgresPassword = instance.postgres_password || crypto.randomBytes(32).toString('hex');
+    updateInstance(instance.id, { postgres_password: postgresPassword });
+
+    // Create and start PostgreSQL container
+    const postgresContainer = await docker.createContainer({
+      Image: POSTGRES_IMAGE,
+      name: `convexer-postgres-${instance.name}`,
+      ExposedPorts: { '5432/tcp': {} },
+      HostConfig: {
+        PortBindings: {
+          '5432/tcp': [{ HostPort: String(instance.postgres_port) }],
+        },
+        Binds: [`${postgresVolumeName}:/var/lib/postgresql/data`],
+        RestartPolicy: { Name: 'unless-stopped' },
+      },
+      Env: [
+        `POSTGRES_PASSWORD=${postgresPassword}`,
+        `POSTGRES_DB=${instance.instance_name}`,
+        `POSTGRES_USER=postgres`,
+      ],
+    });
+
+    await postgresContainer.start();
+
+    // Attach to network
+    try {
+      const network = docker.getNetwork(NETWORK_NAME);
+      await network.connect({ Container: postgresContainer.id });
+    } catch (err: any) {
+      console.warn(`Failed to connect PostgreSQL to network:`, err.message);
+    }
+
+    updateInstance(instance.id, { postgres_container_id: postgresContainer.id });
+
+    // Wait for PostgreSQL to be ready
+    await waitForPostgres(instance.name, 60_000);
 
     // Build backend env vars
     const backendEnv = [
@@ -45,6 +86,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       `CONVEX_INSTANCE_SECRET=${instance.instance_secret}`,
       `INSTANCE_NAME=${instance.instance_name}`,
       `INSTANCE_SECRET=${instance.instance_secret}`,
+      `POSTGRES_URL=postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432/${instance.instance_name}`,
     ];
 
     // When Traefik is enabled, set cloud/site origins to public URLs
@@ -199,6 +241,30 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`Health check timeout for ${url}`);
 }
 
+async function waitForPostgres (instanceName: string, timeoutMs: number): Promise<void>
+{
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const container = await docker.getContainer(`convexer-postgres-${instanceName}`);
+      const exec = await container.exec({
+        Cmd: ['pg_isready'],
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+      const stream = await exec.start({ Detach: false, Tty: false });
+      const output = await demuxStream(stream);
+      if (output.includes('accepting connections')) {
+        return;
+      }
+    } catch (err: any) {
+      // PostgreSQL not ready yet
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error(`PostgreSQL health check timeout for ${instanceName}`);
+}
+
 async function generateAdminKey(container: Docker.Container, instanceName: string, instanceSecret: string): Promise<string> {
   try {
     const exec = await container.exec({
@@ -241,6 +307,11 @@ function demuxStream(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 export async function startInstance(instance: Instance): Promise<void> {
+  if (instance.postgres_container_id) {
+    const container = docker.getContainer(instance.postgres_container_id);
+    await container.start();
+    await waitForPostgres(instance.name, 60_000);
+  }
   if (instance.backend_container_id) {
     const container = docker.getContainer(instance.backend_container_id);
     await container.start();
@@ -269,13 +340,21 @@ export async function stopInstance(instance: Instance): Promise<void> {
       if (!err.message?.includes('not running') && err.statusCode !== 304) throw err;
     }
   }
+  if (instance.postgres_container_id) {
+    try {
+      const container = docker.getContainer(instance.postgres_container_id);
+      await container.stop();
+    } catch (err: any) {
+      if (!err.message?.includes('not running') && err.statusCode !== 304) throw err;
+    }
+  }
   updateInstance(instance.id, { status: 'stopped' });
 }
 
 export async function removeInstance(instance: Instance): Promise<void> {
   // Try removing containers by ID and by name (fallback for failed creates)
-  const containerIds = [instance.dashboard_container_id, instance.backend_container_id].filter(Boolean) as string[];
-  const containerNames = [`convexer-dashboard-${instance.name}`, `convexer-backend-${instance.name}`];
+  const containerIds = [instance.dashboard_container_id, instance.backend_container_id, instance.postgres_container_id].filter(Boolean) as string[];
+  const containerNames = [`convexer-dashboard-${instance.name}`, `convexer-backend-${instance.name}`, `convexer-postgres-${instance.name}`];
 
   for (const ref of [...containerIds, ...containerNames]) {
     try {
@@ -285,12 +364,19 @@ export async function removeInstance(instance: Instance): Promise<void> {
     } catch { /* container doesn't exist, that's fine */ }
   }
 
-  // Remove volume
+  // Remove volumes
   try {
     const volume = docker.getVolume(instance.volume_name);
     await volume.remove();
   } catch (err: any) {
     if (err.statusCode !== 404) console.warn(`Failed to remove volume ${instance.volume_name}:`, err.message);
+  }
+
+  try {
+    const postgresVolume = docker.getVolume(instance.postgres_volume_name);
+    await postgresVolume.remove();
+  } catch (err: any) {
+    if (err.statusCode !== 404) console.warn(`Failed to remove PostgreSQL volume ${instance.postgres_volume_name}:`, err.message);
   }
 }
 
