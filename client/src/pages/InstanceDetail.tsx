@@ -114,6 +114,7 @@ export default function InstanceDetail() {
           <TabsList className="mb-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
+            <TabsTrigger value="database">Database</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>
           </TabsList>
@@ -367,6 +368,10 @@ export default function InstanceDetail() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="database">
+            <DatabaseTab instance={instance} />
+          </TabsContent>
+
           <TabsContent value="settings">
             <InstanceSettings instance={instance} />
           </TabsContent>
@@ -565,5 +570,189 @@ function InstanceLogs({ instanceId }: { instanceId: string }) {
         </Tabs>
       </CardContent>
     </Card>
+  );
+}
+
+function DatabaseTab ({ instance }: { instance: any })
+{
+  const [query, setQuery] = useState('');
+  const [queryResults, setQueryResults] = useState<any[] | null>(null);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableSchema, setTableSchema] = useState<any[] | null>(null);
+
+  const { data: tables, isLoading: tablesLoading } = useQuery({
+    queryKey: ['postgres-tables', instance.id],
+    queryFn: () => api.postgres.listTables(instance.id),
+    enabled: instance.status === 'running',
+  });
+
+  const { data: schema, isLoading: schemaLoading } = useQuery({
+    queryKey: ['postgres-schema', instance.id, selectedTable],
+    queryFn: () => api.postgres.getTableSchema(instance.id, selectedTable!),
+    enabled: !!selectedTable,
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => api.postgres.executeQuery(instance.id, query),
+    onSuccess: (data) =>
+    {
+      setQueryResults(data.results);
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Query failed');
+    },
+  });
+
+  const handleExecuteQuery = () =>
+  {
+    if (!query.trim()) return;
+    executeMutation.mutate();
+  };
+
+  const handleSelectTable = (tableName: string) =>
+  {
+    setSelectedTable(tableName);
+    setTableSchema(null);
+  };
+
+  useEffect(() =>
+  {
+    if (schema) {
+      setTableSchema(schema.schema);
+    }
+  }, [schema]);
+
+  if (instance.status !== 'running') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Database Management</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-muted-foreground py-12">
+            Instance must be running to manage PostgreSQL database
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Tables</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {tablesLoading ? (
+            <div className="text-muted-foreground">Loading tables...</div>
+          ) : tables?.tables && tables.tables.length > 0 ? (
+            <div className="space-y-2">
+              {tables.tables.map((table) => (
+                <Button
+                  key={table}
+                  variant={selectedTable === table ? 'default' : 'outline'}
+                  className="w-full justify-start"
+                  onClick={() => handleSelectTable(table)}
+                >
+                  {table}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-muted-foreground">No tables found</div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedTable && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Table Schema: {selectedTable}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {schemaLoading ? (
+              <div className="text-muted-foreground">Loading schema...</div>
+            ) : tableSchema && tableSchema.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2">Column</th>
+                    <th className="text-left p-2">Type</th>
+                    <th className="text-left p-2">Nullable</th>
+                    <th className="text-left p-2">Default</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableSchema.map((col: any, idx: number) => (
+                    <tr key={idx} className="border-b">
+                      <td className="p-2">{col.column_name}</td>
+                      <td className="p-2">{col.data_type}</td>
+                      <td className="p-2">{col.is_nullable}</td>
+                      <td className="p-2">{col.column_default || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-muted-foreground">No schema information available</div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Query Runner</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <textarea
+            className="w-full h-32 p-3 border rounded font-mono text-sm"
+            placeholder="Enter SQL query..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button
+            onClick={handleExecuteQuery}
+            disabled={executeMutation.isPending || !query.trim()}
+          >
+            {executeMutation.isPending ? 'Executing...' : 'Execute Query'}
+          </Button>
+          {queryResults && queryResults.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">Results ({queryResults.length} rows)</h3>
+              <div className="overflow-auto max-h-64 border rounded">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100">
+                    <tr>
+                      {Object.keys(queryResults[0]).map((key) => (
+                        <th key={key} className="text-left p-2 border-b">
+                          {key}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {queryResults.map((row: any, idx: number) => (
+                      <tr key={idx} className="border-b">
+                        {Object.values(row).map((val: any, vIdx: number) => (
+                          <td key={vIdx} className="p-2">
+                            {val === null ? '<null>' : String(val)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {queryResults && queryResults.length === 0 && (
+            <div className="text-muted-foreground">Query returned no results</div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -98,4 +98,30 @@ export const api = {
     containers_total: number;
     images: number;
   }>('/server/stats'),
+  postgres: {
+    listTables: (id: string) => request<{ tables: string[] }>(`/instances/${id}/postgres/tables`),
+    getTableSchema: (id: string, name: string) => request<{ schema: any[] }>(`/instances/${id}/postgres/tables/${name}`),
+    executeQuery: (id: string, query: string) => request<{ results: any[] }>(`/instances/${id}/postgres/query`, {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
+    createBackup: (id: string) => fetch(`${BASE}/instances/${id}/postgres/backup`, {
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+    }),
+    restoreBackup: (id: string, sql: string) => request<{ success: boolean }>(`/instances/${id}/postgres/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ sql }),
+    }),
+    exportTable: (id: string, table: string) => fetch(`${BASE}/instances/${id}/postgres/export?table=${table}`, {
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+    }),
+    importTable: (id: string, table: string, csv: string) => request<{ success: boolean; inserted: number }>(`/instances/${id}/postgres/import`, {
+      method: 'POST',
+      body: JSON.stringify({ table, csv }),
+    }),
+    listExtensions: (id: string) => request<{ extensions: any[] }>(`/instances/${id}/postgres/extensions`),
+    loadExtension: (id: string, name: string) => request<{ success: boolean }>(`/instances/${id}/postgres/extensions/${name}`, {
+      method: 'POST',
+    }),
+  },
 };
