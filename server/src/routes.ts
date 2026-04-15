@@ -8,6 +8,7 @@ import { createAndStartInstance, startInstance, stopInstance, removeInstance, ge
 import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostnames } from './tunnel.js';
 import { createSession, isAuthEnabled } from './auth.js';
 import { getTraefikStatus } from './traefik.js';
+import * as postgres from './postgres.js';
 
 const docker = new Docker();
 
@@ -375,6 +376,177 @@ router.get('/server/stats', async (_req: Request, res: Response) =>
       containers_total: info.Containers,
       images: info.Images,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PostgreSQL management endpoints
+router.get('/instances/:id/postgres/tables', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const tables = await postgres.listTables(instance);
+    res.json({ tables });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/postgres/tables/:name', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const schema = await postgres.getTableSchema(instance, name);
+    res.json({ schema });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/postgres/query', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const { query } = req.body;
+    if (!query) {
+      res.status(400).json({ error: 'Query is required' });
+      return;
+    }
+    const results = await postgres.executeQuery(instance, query);
+    res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/postgres/backup', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const backup = await postgres.createBackup(instance);
+    res.setHeader('Content-Type', 'application/sql');
+    res.setHeader('Content-Disposition', `attachment; filename="${instance.name}-backup-${Date.now()}.sql"`);
+    res.send(backup);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/postgres/restore', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const { sql } = req.body;
+    if (!sql) {
+      res.status(400).json({ error: 'SQL content is required' });
+      return;
+    }
+    await postgres.restoreBackup(instance, sql);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/postgres/export', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const { table } = req.query;
+    if (!table) {
+      res.status(400).json({ error: 'Table name is required' });
+      return;
+    }
+    const csv = await postgres.exportTable(instance, table as string);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${table}-export-${Date.now()}.csv"`);
+    res.send(csv);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/postgres/import', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const { table, csv } = req.body;
+    if (!table || !csv) {
+      res.status(400).json({ error: 'Table name and CSV content are required' });
+      return;
+    }
+    const inserted = await postgres.importTable(instance, table, csv);
+    res.json({ success: true, inserted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/postgres/extensions', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    const extensions = await postgres.listExtensions(instance);
+    res.json({ extensions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/postgres/extensions/:name', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+    await postgres.loadExtension(instance, name);
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
