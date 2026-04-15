@@ -126,6 +126,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
     const backendCmd = [
       '--db', 'postgres-v5',
       '--do-not-require-ssl',
+      '--',
       `postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432`,
     ];
 
