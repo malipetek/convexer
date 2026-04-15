@@ -40,6 +40,9 @@ Convexer is a self-hosted Convex instance manager that allows users to create, m
 - View instance logs (backend and dashboard)
 - Live resource metrics (CPU, Memory, Disk)
 - Historical metrics graphs
+- PostgreSQL container management (create, start, stop, delete)
+- PostgreSQL database operations (list tables, view schema, run SQL queries)
+- Backup/restore PostgreSQL databases
 
 ### Subdomain Configuration
 - Auto-generate random subdomains on instance creation (e.g., "swift-bear-123")
@@ -55,10 +58,10 @@ Convexer is a self-hosted Convex instance manager that allows users to create, m
 - Public endpoints: `/api/login`, `/api/health`, `/api/version`, `/api/settings`
 
 ### App Updates
-- Version tracking with semantic versioning
-- Check for updates endpoint
-- Update trigger endpoint (simulated for now)
-- Update UI in Settings page
+- Version tracking with semantic versioning (dynamically read from package.json)
+- Check for updates endpoint (GitHub API integration)
+- Update trigger endpoint (git pull + npm install + npm run build)
+- Update UI in Settings page with release notes and download links
 
 ### Global Settings
 - Hostname configuration (for subdomain URLs)
@@ -118,6 +121,31 @@ const subdomain = env.SUBDOMAIN || instance.name;
 const env = JSON.parse(instance.extra_env || '{}');
 const subdomain = env.SUBDOMAIN || instance.name;
 const dashboardSubdomain = env.DASHBOARD_SUBDOMAIN || `${instance.name}-dash`;
+```
+
+### PostgreSQL SSL/TLS Configuration
+**Problem**: Convex backend requires SSL when connecting to PostgreSQL by default, but the PostgreSQL container doesn't have TLS enabled, causing "server does not support TLS" errors.
+
+**Solution**: Set `DO_NOT_REQUIRE_SSL=1` environment variable when creating the backend container. This tells the Convex backend to connect without SSL:
+```typescript
+backendEnv.push('DO_NOT_REQUIRE_SSL=1');
+```
+
+### PostgreSQL URL Format
+**Problem**: Convex backend expects the PostgreSQL URL without the database name in the path - it adds the database name itself based on the instance name. Including it in the URL causes "cluster url already contains db name" errors.
+
+**Solution**: Remove database name from POSTGRES_URL path:
+```typescript
+POSTGRES_URL=postgres://postgres:${password}@postgres-host:5432
+```
+
+### Auto-generated Subdomains Missing Domain Suffix
+**Problem**: Auto-generated subdomains (BACKEND_DOMAIN, SITE_DOMAIN, DASHBOARD_DOMAIN) were set to just the instance name without the domain suffix (e.g., `t18` instead of `t18.malipetek.online`), causing 404 errors.
+
+**Solution**: Include DOMAIN environment variable in auto-generated subdomains:
+```typescript
+const domain = process.env.DOMAIN || '';
+finalExtraEnv.BACKEND_DOMAIN = domain ? `${instanceName}.${domain}` : instanceName;
 ```
 
 ## Deployment Details
@@ -223,10 +251,8 @@ curl -s http://localhost/api/settings
 ```
 
 ## Future Improvements
-- Implement actual GitHub API integration for version checking
-- Add real update mechanism (git pull + npm install + restart)
 - Implement persistent hostname storage (currently only in process.env)
 - Add health check improvements for Convex backend startup
 - Implement proper database migrations
 - Add monitoring and alerting
-- Implement backup/restore functionality
+- Implement instance backup/restore functionality
