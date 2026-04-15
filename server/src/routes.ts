@@ -354,6 +354,29 @@ router.post('/version/update', async (_req: Request, res: Response) =>
   }
 });
 
+// Get server stats from Docker
+router.get('/server/stats', async (_req: Request, res: Response) =>
+{
+  try {
+    const info = await docker.info();
+    const version = await docker.version();
+
+    res.json({
+      server_version: version.Version,
+      api_version: version.ApiVersion,
+      os: info.OperatingSystem,
+      architecture: info.Architecture,
+      cpus: info.NCPU,
+      memory: info.MemTotal,
+      containers_running: info.ContainersRunning,
+      containers_total: info.Containers,
+      images: info.Images,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Helper: compare semantic versions
 function compareVersions (current: string, latest: string): boolean
 {

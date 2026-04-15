@@ -8,6 +8,68 @@ import { Badge } from '../components/ui/badge';
 import { Save, RefreshCw, Download } from 'lucide-react';
 import { api } from '../api';
 
+function ServerStats ()
+{
+  const { data: serverStats, isLoading } = useQuery({
+    queryKey: ['serverStats'],
+    queryFn: () => api.getServerStats(),
+    refetchInterval: 10000,
+  });
+
+  if (isLoading) {
+    return <div className="p-4">Loading server stats...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-sm text-muted-foreground">Server Version</div>
+          <div className="font-mono">{serverStats?.server_version || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-sm text-muted-foreground">API Version</div>
+          <div className="font-mono">{serverStats?.api_version || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-sm text-muted-foreground">Operating System</div>
+          <div className="font-mono">{serverStats?.os || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-sm text-muted-foreground">Architecture</div>
+          <div className="font-mono">{serverStats?.architecture || 'N/A'}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4 pt-2">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-500">{serverStats?.cpus || 0}</div>
+          <div className="text-xs text-muted-foreground">CPUs</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-blue-500">
+            {serverStats?.memory ? (serverStats.memory / (1024 * 1024 * 1024)).toFixed(1) : '0'} GB
+          </div>
+          <div className="text-xs text-muted-foreground">Total Memory</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-orange-500">{serverStats?.containers_running || 0}</div>
+          <div className="text-xs text-muted-foreground">Running Containers</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4 pt-2">
+        <div>
+          <div className="text-sm text-muted-foreground">Total Containers</div>
+          <div className="text-xl font-semibold">{serverStats?.containers_total || 0}</div>
+        </div>
+        <div>
+          <div className="text-sm text-muted-foreground">Total Images</div>
+          <div className="text-xl font-semibold">{serverStats?.images || 0}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const [hostname, setHostname] = useState('');
@@ -115,6 +177,15 @@ export default function Settings() {
               <Save className="h-4 w-4 mr-2" />
               {saving ? 'Saving...' : 'Save Settings'}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Server Stats</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ServerStats />
           </CardContent>
         </Card>
 

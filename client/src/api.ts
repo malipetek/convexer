@@ -87,4 +87,15 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ hostname }),
   }),
+  getServerStats: () => request<{
+    server_version: string;
+    api_version: string;
+    os: string;
+    architecture: string;
+    cpus: number;
+    memory: number;
+    containers_running: number;
+    containers_total: number;
+    images: number;
+  }>('/server/stats'),
 };
