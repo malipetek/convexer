@@ -86,7 +86,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       `CONVEX_INSTANCE_SECRET=${instance.instance_secret}`,
       `INSTANCE_NAME=${instance.instance_name}`,
       `INSTANCE_SECRET=${instance.instance_secret}`,
-      `POSTGRES_URL=postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432/${instance.instance_name}`,
+      `POSTGRES_URL=postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432`,
     ];
 
     // When Traefik is enabled, set cloud/site origins to public URLs
