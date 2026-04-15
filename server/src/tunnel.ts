@@ -8,7 +8,7 @@ import { Instance } from './types.js';
 const CLOUDFLARED_CONFIG = process.env.TUNNEL_CONFIG_PATH
   || path.join(os.homedir(), '.cloudflared', 'config.yml');
 const SYSTEM_CONFIG = '/etc/cloudflared/config.yml';
-const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN || process.env.DOMAIN || '';
+const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN || '';
 
 interface IngressRule {
   hostname?: string;

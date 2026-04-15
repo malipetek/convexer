@@ -88,15 +88,16 @@ router.post('/instances', (req: Request, res: Response) => {
   const ports = allocatePorts();
 
   // Auto-generate subdomains if not provided
+  const domain = process.env.DOMAIN || '';
   const finalExtraEnv = extra_env || {};
   if (!finalExtraEnv.BACKEND_DOMAIN) {
-    finalExtraEnv.BACKEND_DOMAIN = instanceName;
+    finalExtraEnv.BACKEND_DOMAIN = domain ? `${instanceName}.${domain}` : instanceName;
   }
   if (!finalExtraEnv.SITE_DOMAIN) {
-    finalExtraEnv.SITE_DOMAIN = `${instanceName}-site`;
+    finalExtraEnv.SITE_DOMAIN = domain ? `${instanceName}-site.${domain}` : `${instanceName}-site`;
   }
   if (!finalExtraEnv.DASHBOARD_DOMAIN) {
-    finalExtraEnv.DASHBOARD_DOMAIN = `${instanceName}-dash`;
+    finalExtraEnv.DASHBOARD_DOMAIN = domain ? `${instanceName}-dash.${domain}` : `${instanceName}-dash`;
   }
 
   const instance = createInstance({
