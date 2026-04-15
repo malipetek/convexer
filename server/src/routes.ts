@@ -9,8 +9,17 @@ import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostna
 import { createSession, isAuthEnabled } from './auth.js';
 import { getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const docker = new Docker();
+
+// Read version from package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+const CURRENT_VERSION = packageJson.version;
 
 const router = Router();
 
@@ -309,7 +318,6 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
 });
 
 // Version endpoints
-const CURRENT_VERSION = '0.1.0'; // Should be updated with actual version
 
 // Get current version
 router.get('/version', (_req: Request, res: Response) =>
@@ -319,41 +327,77 @@ router.get('/version', (_req: Request, res: Response) =>
   });
 });
 
-// Check for updates (simulated - would check GitHub API in production)
+// Check for updates using GitHub API
 router.get('/version/check', async (_req: Request, res: Response) =>
 {
   try {
-    // In production, this would check GitHub API for latest release
-    // For now, we'll simulate checking against a hardcoded "latest" version
-    const LATEST_VERSION = '0.2.0'; // Example latest version
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'malipetek/convexer';
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Optional, for higher rate limits
 
-    // Simple semantic version comparison
-    const hasUpdate = compareVersions(CURRENT_VERSION, LATEST_VERSION);
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json',
+    };
+    if (GITHUB_TOKEN) {
+      headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+    }
+
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.status}`);
+    }
+
+    const release = await response.json();
+    const latestVersion = release.tag_name.replace(/^v/, ''); // Remove 'v' prefix if present
+
+    const hasUpdate = compareVersions(CURRENT_VERSION, latestVersion);
 
     res.json({
       current_version: CURRENT_VERSION,
-      latest_version: LATEST_VERSION,
+      latest_version: latestVersion,
       has_update: hasUpdate,
+      release_url: release.html_url,
+      release_notes: release.body,
     });
   } catch (err: any) {
+    console.error('Failed to check for updates:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Trigger update (would pull from main branch in production)
+// Trigger update - pulls from git and rebuilds
 router.post('/version/update', async (_req: Request, res: Response) =>
 {
   try {
-    // In production, this would:
-    // 1. Pull latest from main branch
-    // 2. Run npm install / pnpm install
-    // 3. Restart the server
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-    // For now, we'll simulate the update
-    console.log('Update triggered - would pull from main branch');
+    console.log('Starting update process...');
 
-    res.json({ success: true });
+    // 1. Pull latest from git
+    console.log('Pulling latest changes from git...');
+    await execAsync('git fetch origin');
+    await execAsync('git checkout main');
+    await execAsync('git pull origin main');
+
+    // 2. Install dependencies
+    console.log('Installing dependencies...');
+    await execAsync('npm install');
+
+    // 3. Build client
+    console.log('Building client...');
+    await execAsync('npm run build');
+
+    // 4. If running in Docker, we need to restart the container
+    // This will be handled by the Docker restart policy or external orchestrator
+    console.log('Update complete. Server will restart to apply changes.');
+
+    res.json({ success: true, message: 'Update completed successfully' });
   } catch (err: any) {
+    console.error('Update failed:', err);
     res.status(500).json({ error: err.message });
   }
 });
