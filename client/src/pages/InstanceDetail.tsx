@@ -10,7 +10,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
-import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp } from 'lucide-react';
+import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import MetricsGraph from '../components/MetricsGraph';
@@ -31,6 +31,10 @@ export default function InstanceDetail() {
   const [copied, setCopied] = useState(false);
   const [metricsHistory, setMetricsHistory] = useState<Array<{ time: string; cpu: number; memory: number }>>([]);
   const [hostname, setHostname] = useState('');
+  const [duplicating, setDuplicating] = useState(false);
+  const [newInstanceName, setNewInstanceName] = useState('');
+  const [backupConfig, setBackupConfig] = useState<any>(null);
+  const [savingBackup, setSavingBackup] = useState(false);
 
   const { data: instance, isLoading } = useQuery({
     queryKey: ['instance', id],
@@ -48,6 +52,19 @@ export default function InstanceDetail() {
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
   });
+
+  const { data: backupConfigData } = useQuery({
+    queryKey: ['backupConfig', id],
+    queryFn: () => api.backup.getConfig(id!),
+    enabled: !!id,
+  });
+
+  useEffect(() =>
+  {
+    if (backupConfigData?.config) {
+      setBackupConfig(backupConfigData.config);
+    }
+  }, [backupConfigData]);
 
   useEffect(() =>
   {
@@ -84,6 +101,36 @@ export default function InstanceDetail() {
     onSuccess: () => navigate('/'),
   });
 
+  const duplicateMutation = useMutation({
+    mutationFn: (name: string) => api.duplicateInstance(id!, name),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      setDuplicating(false);
+      setNewInstanceName('');
+      alert('Instance duplicated successfully');
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to duplicate instance');
+    },
+  });
+
+  const saveBackupConfigMutation = useMutation({
+    mutationFn: (config: any) => api.backup.createConfig(id!, config),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['backupConfig', id] });
+      setSavingBackup(false);
+      alert('Backup configuration saved');
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to save backup configuration');
+      setSavingBackup(false);
+    },
+  });
+
   const handleCopy = () => {
     navigator.clipboard.writeText(instance?.admin_key || '');
     setCopied(true);
@@ -117,7 +164,63 @@ export default function InstanceDetail() {
           <Badge className={statusColors[instance.status as keyof typeof statusColors]}>
             {instance.status}
           </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+            {
+              setDuplicating(true);
+              setNewInstanceName(`${instance.name}-copy`);
+            }}
+          >
+            <Archive className="h-4 w-4 mr-2" />
+            Duplicate
+          </Button>
         </div>
+
+        {duplicating && (
+          <Card className="mb-6 border-primary">
+            <CardHeader>
+              <CardTitle>Duplicate Instance</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>New Instance Name</Label>
+                <Input
+                  placeholder="Enter new instance name"
+                  value={newInstanceName}
+                  onChange={(e) => setNewInstanceName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() =>
+                  {
+                    if (!newInstanceName.trim()) {
+                      alert('Please enter a name for the new instance');
+                      return;
+                    }
+                    duplicateMutation.mutate(newInstanceName);
+                  }}
+                  disabled={duplicateMutation.isPending}
+                >
+                  {duplicateMutation.isPending ? 'Duplicating...' : 'Confirm Duplicate'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                  {
+                    setDuplicating(false);
+                    setNewInstanceName('');
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs defaultValue="overview">
           <TabsList className="mb-6">
@@ -437,7 +540,14 @@ export default function InstanceDetail() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <InstanceSettings instance={instance} />
+            <InstanceSettings
+              instance={instance}
+              backupConfig={backupConfig}
+              setBackupConfig={setBackupConfig}
+              savingBackup={savingBackup}
+              setSavingBackup={setSavingBackup}
+              saveBackupConfigMutation={saveBackupConfigMutation}
+            />
           </TabsContent>
 
           <TabsContent value="logs">
@@ -449,7 +559,8 @@ export default function InstanceDetail() {
   );
 }
 
-function InstanceSettings({ instance }: { instance: any }) {
+function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation }: { instance: any; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any })
+{
   const [saving, setSaving] = useState(false);
   const [extraEnv, setExtraEnv] = useState<Record<string, string>>(() => {
     try {
@@ -579,6 +690,98 @@ function InstanceSettings({ instance }: { instance: any }) {
 
         <Button onClick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : 'Save & Restart Backend'}
+        </Button>
+      </CardContent>
+    </Card>
+
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Archive className="h-4 w-4" />
+          Backup Configuration
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium">Enable Backups</div>
+            <div className="text-xs text-muted-foreground">Automatically backup this instance on schedule</div>
+          </div>
+          <Switch
+            checked={backupConfig?.enabled === 1}
+            onCheckedChange={(checked: boolean) => setBackupConfig({ ...backupConfig, enabled: checked ? 1 : 0 })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="backup-schedule">Backup Schedule (Cron)</Label>
+          <Input
+            id="backup-schedule"
+            placeholder="0 2 * * 0"
+            value={backupConfig?.schedule || '0 2 * * 0'}
+            onChange={(e) => setBackupConfig({ ...backupConfig, schedule: e.target.value })}
+            disabled={!backupConfig?.enabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Cron expression for backup schedule. Default: Weekly on Sunday at 2 AM (0 2 * * 0)
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="backup-retention">Retention Days</Label>
+          <Input
+            id="backup-retention"
+            type="number"
+            placeholder="30"
+            value={backupConfig?.retention_days || 30}
+            onChange={(e) => setBackupConfig({ ...backupConfig, retention_days: parseInt(e.target.value) || 30 })}
+            disabled={!backupConfig?.enabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Number of days to keep backups before deletion
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="backup-types">Backup Types</Label>
+          <Select
+            value={backupConfig?.backup_types || 'database,volume'}
+            onValueChange={(value) => setBackupConfig({ ...backupConfig, backup_types: value })}
+            disabled={!backupConfig?.enabled}
+          >
+            <SelectTrigger id="backup-types">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="database">Database Only</SelectItem>
+              <SelectItem value="volume">Volume Only</SelectItem>
+              <SelectItem value="database,volume">Database & Volume</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="rsync-target">Rsync Target (optional)</Label>
+          <Input
+            id="rsync-target"
+            placeholder="user@host:/path/to/backups"
+            value={backupConfig?.rsync_target || ''}
+            onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
+            disabled={!backupConfig?.enabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Rsync destination for syncing backups (e.g., for Google Drive, Koofr, etc.)
+          </p>
+        </div>
+
+        <Button
+          onClick={() => {
+            setSavingBackup(true);
+            saveBackupConfigMutation.mutate(backupConfig);
+          }}
+          disabled={savingBackup}
+        >
+          {savingBackup ? 'Saving...' : 'Save Backup Configuration'}
         </Button>
       </CardContent>
     </Card>
