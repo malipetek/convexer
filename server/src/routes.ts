@@ -1094,21 +1094,54 @@ router.get('/backup/ssh-key', async (_req: Request, res: Response) =>
   }
 });
 
-// Test rsync connection
-router.post('/backup/test-rsync', async (req: Request, res: Response) =>
+// Test backup destination connectivity (rsync, koofr, webdav)
+router.post('/backup/test-destination', async (req: Request, res: Response) =>
 {
   try {
-    const { target } = req.body;
-    if (!target) {
-      res.status(400).json({ error: 'Target is required' });
+    const { destination_type, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, remote_subfolder } = req.body;
+
+    if (destination_type === 'rsync') {
+      if (!rsync_target) {
+        res.status(400).json({ error: 'rsync_target is required' });
+        return;
+      }
+      const target = remote_subfolder
+        ? `${rsync_target.replace(/\/$/, '')}/${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
+        : rsync_target;
+      const { stdout, stderr } = await execAsync(
+        `rsync -avzn --timeout=10 -e "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" /etc/hostname "${target}/"`,
+        { timeout: 15000 }
+      );
+      res.json({ success: true, output: stdout + stderr });
       return;
     }
-    // Test with dry-run and a simple echo
-    const { stdout, stderr } = await execAsync(
-      `rsync -avzn --timeout=10 -e "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" /etc/hostname "${target}/"`,
-      { timeout: 15000 }
-    );
-    res.json({ success: true, output: stdout + stderr });
+
+    if (destination_type === 'koofr' || destination_type === 'webdav') {
+      const url = destination_type === 'koofr' ? 'https://app.koofr.net/dav/Koofr' : webdav_url;
+      const user = destination_type === 'koofr' ? koofr_email : webdav_user;
+      const pass = destination_type === 'koofr' ? koofr_password : webdav_password;
+
+      if (!url || !user || !pass) {
+        res.status(400).json({ error: 'Missing credentials' });
+        return;
+      }
+
+      const { stdout: obscured } = await execAsync(`rclone obscure "${pass.replace(/"/g, '\\"')}"`);
+      const obscuredPass = obscured.trim();
+      const remote = `:webdav,url="${url}",vendor="other",user="${user}",pass="${obscuredPass}":`;
+      const remotePath = remote_subfolder
+        ? `${remote}${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
+        : remote;
+
+      const { stdout, stderr } = await execAsync(
+        `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
+        { timeout: 20000 }
+      );
+      res.json({ success: true, output: stdout + stderr || 'Connected successfully' });
+      return;
+    }
+
+    res.status(400).json({ error: 'Unknown destination_type' });
   } catch (err: any) {
     res.status(500).json({ error: err.message, stderr: err.stderr });
   }

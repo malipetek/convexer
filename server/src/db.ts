@@ -75,7 +75,14 @@ db.exec(`
     retention_days INTEGER NOT NULL DEFAULT 30,
     backup_types TEXT NOT NULL DEFAULT 'database,volume',
     local_path TEXT,
+    destination_type TEXT NOT NULL DEFAULT 'local',
+    remote_subfolder TEXT,
     rsync_target TEXT,
+    koofr_email TEXT,
+    koofr_password TEXT,
+    webdav_url TEXT,
+    webdav_user TEXT,
+    webdav_password TEXT,
     s3_bucket TEXT,
     s3_region TEXT,
     s3_access_key TEXT,
@@ -86,6 +93,24 @@ db.exec(`
     FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
   )
 `);
+
+// Migrations: add new columns if missing
+const backupCols = db.prepare(`PRAGMA table_info(backup_configs)`).all() as any[];
+const colNames = backupCols.map(c => c.name);
+const migrations: Array<[string, string]> = [
+  ['destination_type', `ALTER TABLE backup_configs ADD COLUMN destination_type TEXT NOT NULL DEFAULT 'local'`],
+  ['remote_subfolder', `ALTER TABLE backup_configs ADD COLUMN remote_subfolder TEXT`],
+  ['koofr_email', `ALTER TABLE backup_configs ADD COLUMN koofr_email TEXT`],
+  ['koofr_password', `ALTER TABLE backup_configs ADD COLUMN koofr_password TEXT`],
+  ['webdav_url', `ALTER TABLE backup_configs ADD COLUMN webdav_url TEXT`],
+  ['webdav_user', `ALTER TABLE backup_configs ADD COLUMN webdav_user TEXT`],
+  ['webdav_password', `ALTER TABLE backup_configs ADD COLUMN webdav_password TEXT`],
+];
+for (const [col, sql] of migrations) {
+  if (!colNames.includes(col)) {
+    try { db.exec(sql); } catch (e) { console.error('Migration failed:', col, e); }
+  }
+}
 
 // Backup history table
 db.exec(`
@@ -209,7 +234,14 @@ export interface BackupConfig
   retention_days: number;
   backup_types: string;
   local_path?: string;
+  destination_type: string;
+  remote_subfolder?: string;
   rsync_target?: string;
+  koofr_email?: string;
+  koofr_password?: string;
+  webdav_url?: string;
+  webdav_user?: string;
+  webdav_password?: string;
   s3_bucket?: string;
   s3_region?: string;
   s3_access_key?: string;
@@ -249,19 +281,40 @@ export function getBackupConfig (instanceId: string): BackupConfig | undefined
   return db.prepare('SELECT * FROM backup_configs WHERE instance_id = ?').get(instanceId) as BackupConfig | undefined;
 }
 
-export function createBackupConfig (config: Omit<BackupConfig, 'created_at' | 'updated_at'>): BackupConfig
+export function createBackupConfig (config: Partial<BackupConfig> & { id: string; instance_id: string }): BackupConfig
 {
   const stmt = db.prepare(`
-    INSERT INTO backup_configs (id, instance_id, enabled, schedule, retention_days, backup_types, local_path, rsync_target, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint)
-    VALUES (@id, @instance_id, @enabled, @schedule, @retention_days, @backup_types, @local_path, @rsync_target, @s3_bucket, @s3_region, @s3_access_key, @s3_secret_key, @s3_endpoint)
+    INSERT INTO backup_configs (id, instance_id, enabled, schedule, retention_days, backup_types, local_path, destination_type, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint)
+    VALUES (@id, @instance_id, @enabled, @schedule, @retention_days, @backup_types, @local_path, @destination_type, @remote_subfolder, @rsync_target, @koofr_email, @koofr_password, @webdav_url, @webdav_user, @webdav_password, @s3_bucket, @s3_region, @s3_access_key, @s3_secret_key, @s3_endpoint)
   `);
-  stmt.run(config);
+  stmt.run({
+    id: config.id,
+    instance_id: config.instance_id,
+    enabled: config.enabled ?? 1,
+    schedule: config.schedule ?? '0 2 * * 0',
+    retention_days: config.retention_days ?? 30,
+    backup_types: config.backup_types ?? 'database,volume',
+    local_path: config.local_path ?? null,
+    destination_type: config.destination_type ?? 'local',
+    remote_subfolder: config.remote_subfolder ?? null,
+    rsync_target: config.rsync_target ?? null,
+    koofr_email: config.koofr_email ?? null,
+    koofr_password: config.koofr_password ?? null,
+    webdav_url: config.webdav_url ?? null,
+    webdav_user: config.webdav_user ?? null,
+    webdav_password: config.webdav_password ?? null,
+    s3_bucket: config.s3_bucket ?? null,
+    s3_region: config.s3_region ?? null,
+    s3_access_key: config.s3_access_key ?? null,
+    s3_secret_key: config.s3_secret_key ?? null,
+    s3_endpoint: config.s3_endpoint ?? null,
+  });
   return getBackupConfig(config.instance_id)!;
 }
 
 export function updateBackupConfig (instanceId: string, updates: Partial<BackupConfig>): BackupConfig | undefined
 {
-  const allowed = ['enabled', 'schedule', 'retention_days', 'backup_types', 'local_path', 'rsync_target', 's3_bucket', 's3_region', 's3_access_key', 's3_secret_key', 's3_endpoint'];
+  const allowed = ['enabled', 'schedule', 'retention_days', 'backup_types', 'local_path', 'destination_type', 'remote_subfolder', 'rsync_target', 'koofr_email', 'koofr_password', 'webdav_url', 'webdav_user', 'webdav_password', 's3_bucket', 's3_region', 's3_access_key', 's3_secret_key', 's3_endpoint'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return getBackupConfig(instanceId);
 

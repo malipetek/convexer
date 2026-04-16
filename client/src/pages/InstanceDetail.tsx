@@ -788,7 +788,7 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
             </Select>
           </div>
 
-          <RsyncSection
+          <DestinationSection
             backupConfig={backupConfig}
             setBackupConfig={setBackupConfig}
           />
@@ -809,13 +809,16 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
   );
 }
 
-function RsyncSection ({ backupConfig, setBackupConfig }: { backupConfig: any; setBackupConfig: any })
+function DestinationSection ({ backupConfig, setBackupConfig }: { backupConfig: any; setBackupConfig: any })
 {
   const [showSshKey, setShowSshKey] = useState(false);
   const [sshKey, setSshKey] = useState('');
   const [loadingKey, setLoadingKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const destType = backupConfig?.destination_type || 'local';
+  const update = (patch: any) => setBackupConfig({ ...backupConfig, ...patch });
 
   const loadSshKey = async () =>
   {
@@ -837,16 +840,21 @@ function RsyncSection ({ backupConfig, setBackupConfig }: { backupConfig: any; s
     alert('SSH public key copied to clipboard');
   };
 
-  const handleTestRsync = async () =>
+  const handleTest = async () =>
   {
-    if (!backupConfig?.rsync_target) {
-      alert('Please enter an rsync target first');
-      return;
-    }
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await api.backup.testRsync(backupConfig.rsync_target);
+      const result = await api.backup.testDestination({
+        destination_type: destType,
+        rsync_target: backupConfig?.rsync_target,
+        koofr_email: backupConfig?.koofr_email,
+        koofr_password: backupConfig?.koofr_password,
+        webdav_url: backupConfig?.webdav_url,
+        webdav_user: backupConfig?.webdav_user,
+        webdav_password: backupConfig?.webdav_password,
+        remote_subfolder: backupConfig?.remote_subfolder,
+      });
       setTestResult({ success: true, message: result.output || 'Connection successful!' });
     } catch (err: any) {
       setTestResult({ success: false, message: err.message || 'Connection failed' });
@@ -857,52 +865,157 @@ function RsyncSection ({ backupConfig, setBackupConfig }: { backupConfig: any; s
 
   return (
     <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold">Remote Sync via Rsync (optional)</Label>
-        <Button type="button" variant="outline" size="sm" onClick={loadSshKey} disabled={loadingKey}>
-          {loadingKey ? 'Loading...' : 'Show SSH Public Key'}
-        </Button>
+      <div className="space-y-2">
+        <Label className="text-sm font-semibold">Backup Destination</Label>
+        <Select
+          value={destType}
+          onValueChange={(value) => update({ destination_type: value })}
+          disabled={!backupConfig?.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="local">Local only (no remote sync)</SelectItem>
+            <SelectItem value="rsync">Rsync (SSH)</SelectItem>
+            <SelectItem value="koofr">Koofr</SelectItem>
+            <SelectItem value="webdav">WebDAV (generic)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      {showSshKey && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Add this SSH public key to <code className="bg-background px-1 rounded">~/.ssh/authorized_keys</code> on your remote server to enable passwordless rsync:
-          </p>
-          <div className="relative">
-            <pre className="text-xs p-2 bg-background border rounded overflow-x-auto break-all whitespace-pre-wrap">{sshKey}</pre>
-            <Button type="button" size="sm" variant="ghost" className="absolute top-1 right-1" onClick={handleCopyKey}>
-              <Copy className="h-3 w-3" />
+      {destType === 'rsync' && (
+        <>
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">SSH Authentication</Label>
+            <Button type="button" variant="outline" size="sm" onClick={loadSshKey} disabled={loadingKey}>
+              {loadingKey ? 'Loading...' : 'Show SSH Public Key'}
             </Button>
           </div>
+
+          {showSshKey && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Add this SSH public key to <code className="bg-background px-1 rounded">~/.ssh/authorized_keys</code> on your destination server:
+              </p>
+              <div className="relative">
+                <pre className="text-xs p-2 bg-background border rounded overflow-x-auto break-all whitespace-pre-wrap">{sshKey}</pre>
+                <Button type="button" size="sm" variant="ghost" className="absolute top-1 right-1" onClick={handleCopyKey}>
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="rsync-target" className="text-xs">Rsync Target</Label>
+            <Input
+              id="rsync-target"
+              placeholder="user@host:/path/to/backups"
+              value={backupConfig?.rsync_target || ''}
+              onChange={(e) => update({ rsync_target: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Format: <code className="bg-background px-1 rounded">user@host:/path</code>
+            </p>
+          </div>
+        </>
+      )}
+
+      {destType === 'koofr' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="koofr-email" className="text-xs">Koofr Email</Label>
+            <Input
+              id="koofr-email"
+              type="email"
+              placeholder="you@example.com"
+              value={backupConfig?.koofr_email || ''}
+              onChange={(e) => update({ koofr_email: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="koofr-password" className="text-xs">Koofr App Password</Label>
+            <Input
+              id="koofr-password"
+              type="password"
+              placeholder="App password from Koofr settings"
+              value={backupConfig?.koofr_password || ''}
+              onChange={(e) => update({ koofr_password: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Create an app password at <a href="https://app.koofr.net/app/admin/preferences/password" target="_blank" rel="noreferrer" className="underline">app.koofr.net → Preferences → App passwords</a>. WebDAV endpoint <code className="bg-background px-1 rounded">app.koofr.net/dav/Koofr</code> is used automatically.
+            </p>
+          </div>
+        </>
+      )}
+
+      {destType === 'webdav' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-url" className="text-xs">WebDAV URL</Label>
+            <Input
+              id="webdav-url"
+              placeholder="https://webdav.example.com/dav"
+              value={backupConfig?.webdav_url || ''}
+              onChange={(e) => update({ webdav_url: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-user" className="text-xs">Username</Label>
+            <Input
+              id="webdav-user"
+              value={backupConfig?.webdav_user || ''}
+              onChange={(e) => update({ webdav_user: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-password" className="text-xs">Password</Label>
+            <Input
+              id="webdav-password"
+              type="password"
+              value={backupConfig?.webdav_password || ''}
+              onChange={(e) => update({ webdav_password: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+          </div>
+        </>
+      )}
+
+      {destType !== 'local' && (
+        <div className="space-y-2">
+          <Label htmlFor="remote-subfolder" className="text-xs">Remote Subfolder (optional)</Label>
+          <Input
+            id="remote-subfolder"
+            placeholder="convexer-backups/production"
+            value={backupConfig?.remote_subfolder || ''}
+            onChange={(e) => update({ remote_subfolder: e.target.value })}
+            disabled={!backupConfig?.enabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Backups will be placed in this folder within the destination. Leave empty to use the root.
+          </p>
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label htmlFor="rsync-target" className="text-xs">Rsync Target</Label>
-        <Input
-          id="rsync-target"
-          placeholder="user@host:/path/to/backups"
-          value={backupConfig?.rsync_target || ''}
-          onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
-          disabled={!backupConfig?.enabled}
-        />
-        <p className="text-xs text-muted-foreground">
-          Format: <code className="bg-background px-1 rounded">user@host:/path</code> (SSH-based) or <code className="bg-background px-1 rounded">/local/path</code>. Supports any rsync-compatible destination (remote server, mounted NFS, etc.).
-        </p>
-      </div>
-
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleTestRsync}
-          disabled={testing || !backupConfig?.rsync_target}
-        >
-          {testing ? 'Testing...' : 'Test Connection'}
-        </Button>
-      </div>
+      {destType !== 'local' && (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleTest}
+            disabled={testing}
+          >
+            {testing ? 'Testing...' : 'Test Connection'}
+          </Button>
+        </div>
+      )}
 
       {testResult && (
         <div className={`text-xs p-2 rounded ${testResult.success ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
@@ -910,17 +1023,6 @@ function RsyncSection ({ backupConfig, setBackupConfig }: { backupConfig: any; s
           <pre className="whitespace-pre-wrap mt-1">{testResult.message}</pre>
         </div>
       )}
-
-      <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer font-medium">How to set up rsync?</summary>
-        <ol className="mt-2 space-y-1 list-decimal list-inside pl-2">
-          <li>Click <strong>Show SSH Public Key</strong> above and copy it</li>
-          <li>On your destination server, add it to <code>~/.ssh/authorized_keys</code></li>
-          <li>Ensure <code>rsync</code> is installed on the destination (<code>apt install rsync</code>)</li>
-          <li>For cloud storage (Koofr, Google Drive), use <code>rclone</code> with an SFTP mount on a VPS</li>
-          <li>Enter the target as <code>user@host:/path</code> and click <strong>Test Connection</strong></li>
-        </ol>
-      </details>
     </div>
   );
 }

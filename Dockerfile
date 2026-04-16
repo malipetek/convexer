@@ -28,7 +28,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Install backup and SSH utilities
-RUN apk add --no-cache rsync openssh-client postgresql-client tar gzip
+RUN apk add --no-cache rsync openssh-client postgresql-client tar gzip rclone
 
 # Install tsx globally
 RUN npm install -g tsx

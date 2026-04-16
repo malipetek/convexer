@@ -128,6 +128,93 @@ export async function rsyncBackup(filePath: string, target: string): Promise<{ s
   }
 }
 
+/**
+ * Build rclone remote config spec on-the-fly and copy file to remote.
+ * Uses --config /dev/null with :<backend>, connection-string syntax so creds aren't written to disk.
+ */
+async function rcloneCopy (
+  filePath: string,
+  remoteSpec: string,
+  subfolder: string | null | undefined,
+): Promise<{ success: boolean; error?: string }>
+{
+  try {
+    let remotePath = remoteSpec;
+    if (subfolder) {
+      const clean = subfolder.replace(/^\/+|\/+$/g, '');
+      remotePath = `${remoteSpec}/${clean}`;
+    }
+    await execAsync(`rclone copy "${filePath}" "${remotePath}" --config /dev/null`, { maxBuffer: 50 * 1024 * 1024 });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || err.stderr };
+  }
+}
+
+export async function koofrBackup (
+  filePath: string,
+  email: string,
+  password: string,
+  subfolder?: string | null,
+): Promise<{ success: boolean; error?: string }>
+{
+  // Obscure password for rclone
+  try {
+    const { stdout } = await execAsync(`rclone obscure "${password.replace(/"/g, '\\"')}"`);
+    const obscured = stdout.trim();
+    // Use WebDAV backend against Koofr
+    const remote = `:webdav,url="https://app.koofr.net/dav/Koofr",vendor="other",user="${email}",pass="${obscured}":`;
+    return await rcloneCopy(filePath, remote, subfolder);
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function webdavBackup (
+  filePath: string,
+  url: string,
+  user: string,
+  password: string,
+  subfolder?: string | null,
+): Promise<{ success: boolean; error?: string }>
+{
+  try {
+    const { stdout } = await execAsync(`rclone obscure "${password.replace(/"/g, '\\"')}"`);
+    const obscured = stdout.trim();
+    const remote = `:webdav,url="${url}",vendor="other",user="${user}",pass="${obscured}":`;
+    return await rcloneCopy(filePath, remote, subfolder);
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function uploadToDestination (filePath: string, config: BackupConfig): Promise<void>
+{
+  const destType = config.destination_type || 'local';
+  const subfolder = config.remote_subfolder;
+
+  if (destType === 'local') return;
+
+  if (destType === 'rsync' && config.rsync_target) {
+    const target = subfolder ? `${config.rsync_target.replace(/\/$/, '')}/${subfolder.replace(/^\/+|\/+$/g, '')}` : config.rsync_target;
+    const result = await rsyncBackup(filePath, target);
+    if (!result.success) console.error('Rsync failed:', result.error);
+    return;
+  }
+
+  if (destType === 'koofr' && config.koofr_email && config.koofr_password) {
+    const result = await koofrBackup(filePath, config.koofr_email, config.koofr_password, subfolder);
+    if (!result.success) console.error('Koofr upload failed:', result.error);
+    return;
+  }
+
+  if (destType === 'webdav' && config.webdav_url && config.webdav_user && config.webdav_password) {
+    const result = await webdavBackup(filePath, config.webdav_url, config.webdav_user, config.webdav_password, subfolder);
+    if (!result.success) console.error('WebDAV upload failed:', result.error);
+    return;
+  }
+}
+
 export async function performBackup(instanceId: string): Promise<void> {
   const instance = getInstance(instanceId);
   if (!instance) {
@@ -147,13 +234,13 @@ export async function performBackup(instanceId: string): Promise<void> {
     
     if (backupType === 'database') {
       const result = await backupDatabase(instance, backupId);
-      if (result.success && result.filePath && config.rsync_target) {
-        await rsyncBackup(result.filePath, config.rsync_target);
+      if (result.success && result.filePath) {
+        await uploadToDestination(result.filePath, config);
       }
     } else if (backupType === 'volume') {
       const result = await backupVolume(instance, backupId);
-      if (result.success && result.filePath && config.rsync_target) {
-        await rsyncBackup(result.filePath, config.rsync_target);
+      if (result.success && result.filePath) {
+        await uploadToDestination(result.filePath, config);
       }
     }
   }
