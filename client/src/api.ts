@@ -98,13 +98,52 @@ export const api = {
   getServerStats: () => request<{
     server_version: string;
     api_version: string;
+    docker_server_address: string;
+    storage_driver: string;
     os: string;
+    kernel_version: string;
     architecture: string;
     cpus: number;
-    memory: number;
+    load_average_1m: number;
+    load_average_5m: number;
+    load_average_15m: number;
+    memory_total: number;
+    memory_used: number;
+    memory_free: number;
+    memory_total_gb: string;
+    memory_used_gb: string;
+    memory_free_gb: string;
+    memory_usage_percent: string;
     containers_running: number;
+    containers_paused: number;
+    containers_stopped: number;
     containers_total: number;
     images: number;
+    volumes: number;
+    networks: number;
+    uptime_seconds: number;
+    uptime_formatted: string;
+    hostname: string;
+    platform: string;
+    release: string;
+    disk_usage: Array<{
+      filesystem: string;
+      size: string;
+      used: string;
+      available: string;
+      usage_percent: string;
+      mountpoint: string;
+    }>;
+    docker_disk_usage: any;
+    network_interfaces: Array<{
+      name: string;
+      addresses: Array<{
+        family: string;
+        address: string;
+        netmask: string;
+        internal: boolean;
+      }>;
+    }>;
   }>('/server/stats'),
   postgres: {
     listTables: (id: string) => request<{ tables: string[] }>(`/instances/${id}/postgres/tables`),

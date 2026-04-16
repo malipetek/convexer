@@ -34,6 +34,8 @@ services:
       - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
       - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      - GITHUB_REPO=${GITHUB_REPO:-malipetek/convexer}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     labels:
       - traefik.enable=true
       - traefik.http.routers.convexer.rule=Host(`malipetek.online`)

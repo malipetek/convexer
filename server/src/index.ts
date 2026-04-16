@@ -46,34 +46,6 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Public endpoints (no auth required) — registered BEFORE router
-app.get('/api/version', (_req, res) =>
-{
-  res.json({ current_version: '0.1.0' });
-});
-
-app.get('/api/version/check', async (_req, res) =>
-{
-  try {
-    res.json({
-      current_version: '0.1.0',
-      latest_version: '0.2.0',
-      has_update: true,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/version/update', async (_req, res) =>
-{
-  try {
-    console.log('Update triggered');
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.get('/api/settings', (_req, res) =>
 {

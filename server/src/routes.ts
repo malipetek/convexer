@@ -529,22 +529,156 @@ router.get('/server/stats', async (_req: Request, res: Response) =>
   try {
     const info = await docker.info();
     const version = await docker.version();
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    const os = await import('os');
+
+    // Get system uptime
+    const uptime = os.uptime();
+
+    // Get CPU load averages
+    const loadavg = os.loadavg();
+
+    // Get memory info
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+
+    // Get disk usage
+    let diskUsage: any[] = [];
+    try {
+      const { stdout } = await execAsync('df -h');
+      const lines = stdout.split('\n').slice(1);
+      for (const line of lines) {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 6 && parts[0] !== '' && !parts[0].startsWith('/dev/loop')) {
+          diskUsage.push({
+            filesystem: parts[0],
+            size: parts[1],
+            used: parts[2],
+            available: parts[3],
+            usage_percent: parts[4],
+            mountpoint: parts[5],
+          });
+        }
+      }
+    } catch (err) {
+      // Disk stats unavailable
+    }
+
+    // Get Docker system disk usage
+    let dockerDiskUsage: any = {};
+    try {
+      const { stdout } = await execAsync('docker system df');
+      const lines = stdout.split('\n');
+      if (lines.length > 1) {
+        const header = lines[0].split(/\s+/);
+        const types = ['Images', 'Containers', 'Local Volumes', 'Build Cache'];
+        for (let i = 1; i < lines.length && i - 1 < types.length; i++) {
+          const parts = lines[i].split(/\s+/).filter(p => p);
+          if (parts.length >= 4) {
+            dockerDiskUsage[types[i - 1].toLowerCase().replace(' ', '_')] = {
+              total_size: parts[1],
+              active: parts[2],
+              size: parts[3],
+              reclaimable: parts[4] || '',
+            };
+          }
+        }
+      }
+    } catch (err) {
+      // Docker disk stats unavailable
+    }
+
+    // Get network interfaces
+    const networkInterfaces = os.networkInterfaces();
+
+    // Get Docker storage driver
+    const storageDriver = info.Driver;
+
+    // Get Docker server address
+    const serverAddress = info.ServerVersion;
 
     res.json({
+      // Docker info
       server_version: version.Version,
       api_version: version.ApiVersion,
+      docker_server_address: serverAddress,
+      storage_driver: storageDriver,
       os: info.OperatingSystem,
+      kernel_version: info.KernelVersion,
       architecture: info.Architecture,
+
+      // CPU
       cpus: info.NCPU,
-      memory: info.MemTotal,
+      load_average_1m: loadavg[0],
+      load_average_5m: loadavg[1],
+      load_average_15m: loadavg[2],
+
+      // Memory
+      memory_total: totalMem,
+      memory_used: usedMem,
+      memory_free: freeMem,
+      memory_total_gb: (totalMem / (1024 * 1024 * 1024)).toFixed(2),
+      memory_used_gb: (usedMem / (1024 * 1024 * 1024)).toFixed(2),
+      memory_free_gb: (freeMem / (1024 * 1024 * 1024)).toFixed(2),
+      memory_usage_percent: ((usedMem / totalMem) * 100).toFixed(1),
+
+      // Docker containers
       containers_running: info.ContainersRunning,
+      containers_paused: info.ContainersPaused,
+      containers_stopped: info.ContainersStopped,
       containers_total: info.Containers,
       images: info.Images,
+
+      // Docker volumes and networks
+      volumes: info.Volumes,
+      networks: info.Networks,
+
+      // System
+      uptime_seconds: uptime,
+      uptime_formatted: formatUptime(uptime),
+      hostname: os.hostname(),
+      platform: os.platform(),
+      release: os.release(),
+
+      // Disk usage
+      disk_usage: diskUsage,
+
+      // Docker disk usage
+      docker_disk_usage: dockerDiskUsage,
+
+      // Network interfaces
+      network_interfaces: Object.keys(networkInterfaces).map(iface => ({
+        name: iface,
+        addresses: networkInterfaces[iface]?.map(addr => ({
+          family: addr.family,
+          address: addr.address,
+          netmask: addr.netmask,
+          internal: addr.internal,
+        })) || [],
+      })),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+function formatUptime (seconds: number): string
+{
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  } else {
+    return `${minutes}m`;
+  }
+}
 
 // PostgreSQL management endpoints
 router.get('/instances/:id/postgres/tables', async (req: Request, res: Response) =>

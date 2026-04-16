@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Save, RefreshCw, Download } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick } from 'lucide-react';
 import { api } from '../api';
 
 function ServerStats ()
@@ -21,51 +21,282 @@ function ServerStats ()
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-sm text-muted-foreground">Server Version</div>
-          <div className="font-mono">{serverStats?.server_version || 'N/A'}</div>
-        </div>
-        <div>
-          <div className="text-sm text-muted-foreground">API Version</div>
-          <div className="font-mono">{serverStats?.api_version || 'N/A'}</div>
-        </div>
-        <div>
-          <div className="text-sm text-muted-foreground">Operating System</div>
-          <div className="font-mono">{serverStats?.os || 'N/A'}</div>
-        </div>
-        <div>
-          <div className="text-sm text-muted-foreground">Architecture</div>
-          <div className="font-mono">{serverStats?.architecture || 'N/A'}</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-4 pt-2">
-        <div className="text-center">
-          <div className="text-2xl font-bold text-green-500">{serverStats?.cpus || 0}</div>
-          <div className="text-xs text-muted-foreground">CPUs</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-blue-500">
-            {serverStats?.memory ? (serverStats.memory / (1024 * 1024 * 1024)).toFixed(1) : '0'} GB
+    <div className="space-y-6">
+      {/* System Info */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Server className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Hostname</span>
           </div>
-          <div className="text-xs text-muted-foreground">Total Memory</div>
+          <div className="font-mono text-sm">{serverStats?.hostname || 'N/A'}</div>
         </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-orange-500">{serverStats?.containers_running || 0}</div>
-          <div className="text-xs text-muted-foreground">Running Containers</div>
+        <div className="p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Uptime</span>
+          </div>
+          <div className="font-semibold text-sm">{serverStats?.uptime_formatted || 'N/A'}</div>
+        </div>
+        <div className="p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">OS</span>
+          </div>
+          <div className="font-mono text-xs">{serverStats?.os || 'N/A'}</div>
+        </div>
+        <div className="p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Server className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Kernel</span>
+          </div>
+          <div className="font-mono text-xs">{serverStats?.kernel_version || 'N/A'}</div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 pt-2">
-        <div>
-          <div className="text-sm text-muted-foreground">Total Containers</div>
-          <div className="text-xl font-semibold">{serverStats?.containers_total || 0}</div>
-        </div>
-        <div>
-          <div className="text-sm text-muted-foreground">Total Images</div>
-          <div className="text-xl font-semibold">{serverStats?.images || 0}</div>
-        </div>
+
+      {/* CPU & Memory */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Cpu className="h-4 w-4" />
+              CPU
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Cores</span>
+              <Badge variant="secondary">{serverStats?.cpus || 0}</Badge>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Load Average (1m)</span>
+                <span className="font-mono">{serverStats?.load_average_1m?.toFixed(2) || '0'}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Load Average (5m)</span>
+                <span className="font-mono">{serverStats?.load_average_5m?.toFixed(2) || '0'}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Load Average (15m)</span>
+                <span className="font-mono">{serverStats?.load_average_15m?.toFixed(2) || '0'}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <MemoryStick className="h-4 w-4" />
+              Memory
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Total</span>
+              <span className="font-mono text-sm">{serverStats?.memory_total_gb || '0'} GB</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Used</span>
+              <span className="font-mono text-sm">{serverStats?.memory_used_gb || '0'} GB</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Free</span>
+              <span className="font-mono text-sm">{serverStats?.memory_free_gb || '0'} GB</span>
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Usage</span>
+                <span className="font-semibold">{serverStats?.memory_usage_percent || '0'}%</span>
+              </div>
+              <div className="w-full bg-secondary rounded-full h-2">
+                <div
+                  className="bg-blue-500 h-2 rounded-full transition-all"
+                  style={{ width: `${serverStats?.memory_usage_percent || 0}%` }}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Disk Usage */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <HardDrive className="h-4 w-4" />
+            Disk Usage
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {serverStats?.disk_usage && serverStats.disk_usage.length > 0 ? (
+            <div className="space-y-3">
+              {serverStats.disk_usage.map((disk, idx) => (
+                <div key={idx} className="p-3 bg-muted rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-mono text-xs">{disk.mountpoint}</span>
+                    </div>
+                    <Badge variant={parseInt(disk.usage_percent) > 80 ? 'destructive' : 'secondary'}>
+                      {disk.usage_percent}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                    <div>
+                      <span className="text-muted-foreground">Size: </span>
+                      <span className="font-mono">{disk.size}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Used: </span>
+                      <span className="font-mono">{disk.used}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avail: </span>
+                      <span className="font-mono">{disk.available}</span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all ${parseInt(disk.usage_percent) > 80 ? 'bg-red-500' : parseInt(disk.usage_percent) > 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                      style={{ width: disk.usage_percent }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No disk usage data available</div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Docker Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Container className="h-4 w-4" />
+              Docker Containers
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="p-2 bg-green-500/10 rounded-lg">
+                <div className="text-xl font-bold text-green-500">{serverStats?.containers_running || 0}</div>
+                <div className="text-xs text-muted-foreground">Running</div>
+              </div>
+              <div className="p-2 bg-yellow-500/10 rounded-lg">
+                <div className="text-xl font-bold text-yellow-500">{serverStats?.containers_paused || 0}</div>
+                <div className="text-xs text-muted-foreground">Paused</div>
+              </div>
+              <div className="p-2 bg-gray-500/10 rounded-lg">
+                <div className="text-xl font-bold text-gray-500">{serverStats?.containers_stopped || 0}</div>
+                <div className="text-xs text-muted-foreground">Stopped</div>
+              </div>
+            </div>
+            <div className="flex justify-between text-xs pt-2 border-t">
+              <span className="text-muted-foreground">Total Containers</span>
+              <span className="font-semibold">{serverStats?.containers_total || 0}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Total Images</span>
+              <span className="font-semibold">{serverStats?.images || 0}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Server className="h-4 w-4" />
+              Docker Resources
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Storage Driver</span>
+              <Badge variant="outline">{serverStats?.storage_driver || 'N/A'}</Badge>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Volumes</span>
+              <span className="font-semibold">{serverStats?.volumes || 0}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Networks</span>
+              <span className="font-semibold">{serverStats?.networks || 0}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Docker Version</span>
+              <span className="font-mono text-xs">{serverStats?.server_version || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">API Version</span>
+              <span className="font-mono text-xs">{serverStats?.api_version || 'N/A'}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Docker Disk Usage */}
+      {serverStats?.docker_disk_usage && Object.keys(serverStats.docker_disk_usage).length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <HardDrive className="h-4 w-4" />
+              Docker Disk Usage
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(serverStats.docker_disk_usage).map(([key, value]: [string, any]) => (
+                <div key={key} className="p-3 bg-muted rounded-lg">
+                  <div className="text-xs text-muted-foreground mb-1 capitalize">{key.replace('_', ' ')}</div>
+                  <div className="font-mono text-sm">{value.total_size || 'N/A'}</div>
+                  {value.reclaimable && (
+                    <div className="text-xs text-muted-foreground mt-1">Reclaimable: {value.reclaimable}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Network Interfaces */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Network className="h-4 w-4" />
+            Network Interfaces
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {serverStats?.network_interfaces && serverStats.network_interfaces.length > 0 ? (
+            <div className="space-y-2">
+              {serverStats.network_interfaces.map((iface, idx) => (
+                <div key={idx} className="p-3 bg-muted rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Network className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold text-sm">{iface.name}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {iface.addresses.map((addr, addrIdx) => (
+                      <div key={addrIdx} className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">{addr.family}</span>
+                        <span className="font-mono">{addr.address}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No network interfaces data available</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
