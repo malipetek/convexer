@@ -321,9 +321,22 @@ export default function Settings() {
     }
   }, [settings]);
 
+  // Use checkUpdate as the source of truth — it returns current_version,
+  // latest_version, and has_update in a single call. Falls back gracefully if
+  // the GitHub check fails (e.g. rate-limited) by calling getVersion.
   const { data: versionInfo } = useQuery({
     queryKey: ['version'],
-    queryFn: () => api.getVersion(),
+    queryFn: async () =>
+    {
+      try {
+        return await api.checkUpdate();
+      } catch {
+        const v = await api.getVersion();
+        return { current_version: v.current_version, latest_version: undefined as any, has_update: false };
+      }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
   });
 
   const saveSettingsMutation = useMutation({
