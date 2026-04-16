@@ -23,7 +23,7 @@ export async function backupDatabase(instance: Instance, backupId: string): Prom
     const container = docker.getContainer(`convexer-postgres-${instance.name}`);
     
     const exec = await container.exec({
-      Cmd: ['pg_dump', '-U', 'postgres', instance.instance_name],
+      Cmd: ['pg_dump', '-U', 'postgres', instance.instance_name.replace(/-/g, '_')],
       AttachStdout: true,
       AttachStderr: true,
     });
@@ -145,6 +145,46 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
       completed_at: new Date().toISOString(),
     });
     return { success: false, error: err.message };
+  }
+}
+
+export async function restoreVolume (instance: Instance, filePath: string): Promise<void>
+{
+  await new Promise<void>((resolve, reject) =>
+  {
+    docker.pull('alpine:latest', (err: any, stream: any) =>
+    {
+      if (err) return reject(err);
+      docker.modem.followProgress(stream, (err: any) => err ? reject(err) : resolve());
+    });
+  });
+
+  // Discover the data volume by inspecting the convexer container's mounts
+  const selfContainer = docker.getContainer('convexer');
+  const selfInfo = await selfContainer.inspect();
+  const dataDir = process.env.DATA_DIR || '/app/server/data';
+  const dataMount = (selfInfo.Mounts || []).find((m: any) => m.Destination === dataDir);
+  if (!dataMount?.Name) throw new Error('Cannot find data volume mount in convexer container');
+
+  const relPath = path.relative(dataDir, filePath);
+
+  const container = await docker.createContainer({
+    Image: 'alpine',
+    Cmd: ['tar', '-xzf', `/backup-src/${relPath}`, '-C', '/data'],
+    HostConfig: {
+      Binds: [
+        `${instance.volume_name}:/data`,
+        `${dataMount.Name}:/backup-src:ro`,
+      ],
+    },
+  });
+
+  try {
+    await container.start();
+    const { StatusCode } = await container.wait();
+    if (StatusCode !== 0) throw new Error(`Volume restore exited with code ${StatusCode}`);
+  } finally {
+    try { await container.remove({ force: true }); } catch { }
   }
 }
 

@@ -1320,23 +1320,18 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       extra_env: sourceInstance.extra_env,
     });
 
-    // Create and start new instance
-    await createAndStartInstance(newInstance);
-
-    // Restore database to new instance
-    if (dbResult.filePath) {
-      const sql = await (await import('fs/promises')).readFile(dbResult.filePath, 'utf-8');
-      await restoreBackup(newInstance, sql);
-    }
-
-    // Restore volume to new instance
-    if (volResult.filePath) {
-      const volume = docker.getVolume(newInstance.volume_name);
-      const info = await volume.inspect();
-      if (info.Mountpoint) {
-        await execAsync(`tar -xzf "${volResult.filePath}" -C "${info.Mountpoint}"`);
+    // Create and start new instance; restore DB + volume after postgres is ready but before backend starts
+    await createAndStartInstance(newInstance, async () =>
+    {
+      if (dbResult.filePath) {
+        const sql = await (await import('fs/promises')).readFile(dbResult.filePath, 'utf-8');
+        await restoreBackup(newInstance, sql);
       }
-    }
+      if (volResult.filePath) {
+        const { restoreVolume } = await import('./backup.js');
+        await restoreVolume(newInstance, volResult.filePath);
+      }
+    });
 
     // Update instance status
     updateInstance(newInstance.id, { status: 'running' });

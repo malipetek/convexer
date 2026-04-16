@@ -10,7 +10,7 @@ export async function getPostgresConnection(instance: Instance): Promise<pg.Clie
     port: 5432,
     user: 'postgres',
     password: instance.postgres_password,
-    database: instance.instance_name,
+    database: instance.instance_name.replace(/-/g, '_'),
   });
   await client.connect();
   return client;
@@ -65,7 +65,7 @@ export async function createBackup(instance: Instance): Promise<string> {
   const container = docker.getContainer(`convexer-postgres-${instance.name}`);
   
   const exec = await container.exec({
-    Cmd: ['pg_dump', '-U', 'postgres', instance.instance_name],
+    Cmd: ['pg_dump', '-U', 'postgres', instance.instance_name.replace(/-/g, '_')],
     AttachStdout: true,
     AttachStderr: true,
   });
@@ -85,7 +85,7 @@ export async function restoreBackup(instance: Instance, sql: string): Promise<vo
   const container = docker.getContainer(`convexer-postgres-${instance.name}`);
   
   const exec = await container.exec({
-    Cmd: ['psql', '-U', 'postgres', '-d', instance.instance_name],
+    Cmd: ['psql', '-U', 'postgres', '-d', instance.instance_name.replace(/-/g, '_')],
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,

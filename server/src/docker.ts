@@ -29,7 +29,8 @@ export async function ensureImages(): Promise<void> {
   }
 }
 
-export async function createAndStartInstance(instance: Instance): Promise<void> {
+export async function createAndStartInstance (instance: Instance, beforeBackendStart?: () => Promise<void>): Promise<void>
+{
   try {
     const volumeName = instance.volume_name;
     const postgresVolumeName = instance.postgres_volume_name;
@@ -60,7 +61,7 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
       },
       Env: [
         `POSTGRES_PASSWORD=${postgresPassword}`,
-        `POSTGRES_DB=${instance.instance_name}`,
+        `POSTGRES_DB=${instance.instance_name.replace(/-/g, '_')}`,
         `POSTGRES_USER=postgres`,
       ],
     });
@@ -79,6 +80,11 @@ export async function createAndStartInstance(instance: Instance): Promise<void> 
 
     // Wait for PostgreSQL to be ready
     await waitForPostgres(instance.name, 60_000);
+
+    // Hook for pre-backend operations (e.g. restore DB/volume during duplication)
+    if (beforeBackendStart) {
+      await beforeBackendStart();
+    }
 
     // Build backend env vars
     const backendEnv = [
