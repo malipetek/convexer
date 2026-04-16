@@ -599,192 +599,195 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Instance Settings</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="retention-delay">DOCUMENT_RETENTION_DELAY (seconds)</Label>
-          <Input
-            id="retention-delay"
-            type="number"
-            value={extraEnv.DOCUMENT_RETENTION_DELAY || '172800'}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DOCUMENT_RETENTION_DELAY', e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="mutations">APPLICATION_MAX_CONCURRENT_MUTATIONS</Label>
-          <Input
-            id="mutations"
-            type="number"
-            value={extraEnv.APPLICATION_MAX_CONCURRENT_MUTATIONS || '16'}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('APPLICATION_MAX_CONCURRENT_MUTATIONS', e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="rust-log">RUST_LOG</Label>
-          <Select value={extraEnv.RUST_LOG || 'info'} onValueChange={value => handleChange('RUST_LOG', value)}>
-            <SelectTrigger id="rust-log">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="error">error</SelectItem>
-              <SelectItem value="warn">warn</SelectItem>
-              <SelectItem value="info">info</SelectItem>
-              <SelectItem value="debug">debug</SelectItem>
-              <SelectItem value="trace">trace</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label htmlFor="metrics">Enable Prometheus /metrics endpoint</Label>
-          <Switch
-            id="metrics"
-            checked={extraEnv.DISABLE_METRICS_ENDPOINT === 'false'}
-            onCheckedChange={(checked: boolean) => handleSwitchChange('DISABLE_METRICS_ENDPOINT', checked, 'false')}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="backend-domain">Backend Custom Domain (optional)</Label>
-          <Input
-            id="backend-domain"
-            placeholder="myapp.example.com"
-            value={extraEnv.BACKEND_DOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('BACKEND_DOMAIN', e.target.value)}
-          />
-          <p className="text-sm text-muted-foreground">
-            Set a custom domain for the backend (leave empty for default subdomain)
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="site-domain">Site Custom Domain (optional)</Label>
-          <Input
-            id="site-domain"
-            placeholder="site.example.com"
-            value={extraEnv.SITE_DOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('SITE_DOMAIN', e.target.value)}
-          />
-          <p className="text-sm text-muted-foreground">
-            Set a custom domain for the site (leave empty for default subdomain)
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="dashboard-domain">Dashboard Custom Domain (optional)</Label>
-          <Input
-            id="dashboard-domain"
-            placeholder="dash.example.com"
-            value={extraEnv.DASHBOARD_DOMAIN || ''}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DASHBOARD_DOMAIN', e.target.value)}
-          />
-          <p className="text-sm text-muted-foreground">
-            Set a custom domain for the dashboard (leave empty for default subdomain)
-          </p>
-        </div>
-
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save & Restart Backend'}
-        </Button>
-      </CardContent>
-    </Card>
-
-    <Card className="mt-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Archive className="h-4 w-4" />
-          Backup Configuration
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium">Enable Backups</div>
-            <div className="text-xs text-muted-foreground">Automatically backup this instance on schedule</div>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Instance Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="retention-delay">DOCUMENT_RETENTION_DELAY (seconds)</Label>
+            <Input
+              id="retention-delay"
+              type="number"
+              value={extraEnv.DOCUMENT_RETENTION_DELAY || '172800'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DOCUMENT_RETENTION_DELAY', e.target.value)}
+            />
           </div>
-          <Switch
-            checked={backupConfig?.enabled === 1}
-            onCheckedChange={(checked: boolean) => setBackupConfig({ ...backupConfig, enabled: checked ? 1 : 0 })}
-          />
-        </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="backup-schedule">Backup Schedule (Cron)</Label>
-          <Input
-            id="backup-schedule"
-            placeholder="0 2 * * 0"
-            value={backupConfig?.schedule || '0 2 * * 0'}
-            onChange={(e) => setBackupConfig({ ...backupConfig, schedule: e.target.value })}
-            disabled={!backupConfig?.enabled}
-          />
-          <p className="text-xs text-muted-foreground">
-            Cron expression for backup schedule. Default: Weekly on Sunday at 2 AM (0 2 * * 0)
-          </p>
-        </div>
+          <div className="space-y-2">
+            <Label htmlFor="mutations">APPLICATION_MAX_CONCURRENT_MUTATIONS</Label>
+            <Input
+              id="mutations"
+              type="number"
+              value={extraEnv.APPLICATION_MAX_CONCURRENT_MUTATIONS || '16'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('APPLICATION_MAX_CONCURRENT_MUTATIONS', e.target.value)}
+            />
+          </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="backup-retention">Retention Days</Label>
-          <Input
-            id="backup-retention"
-            type="number"
-            placeholder="30"
-            value={backupConfig?.retention_days || 30}
-            onChange={(e) => setBackupConfig({ ...backupConfig, retention_days: parseInt(e.target.value) || 30 })}
-            disabled={!backupConfig?.enabled}
-          />
-          <p className="text-xs text-muted-foreground">
-            Number of days to keep backups before deletion
-          </p>
-        </div>
+          <div className="space-y-2">
+            <Label htmlFor="rust-log">RUST_LOG</Label>
+            <Select value={extraEnv.RUST_LOG || 'info'} onValueChange={value => handleChange('RUST_LOG', value)}>
+              <SelectTrigger id="rust-log">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="error">error</SelectItem>
+                <SelectItem value="warn">warn</SelectItem>
+                <SelectItem value="info">info</SelectItem>
+                <SelectItem value="debug">debug</SelectItem>
+                <SelectItem value="trace">trace</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="backup-types">Backup Types</Label>
-          <Select
-            value={backupConfig?.backup_types || 'database,volume'}
-            onValueChange={(value) => setBackupConfig({ ...backupConfig, backup_types: value })}
-            disabled={!backupConfig?.enabled}
+          <div className="flex items-center justify-between">
+            <Label htmlFor="metrics">Enable Prometheus /metrics endpoint</Label>
+            <Switch
+              id="metrics"
+              checked={extraEnv.DISABLE_METRICS_ENDPOINT === 'false'}
+              onCheckedChange={(checked: boolean) => handleSwitchChange('DISABLE_METRICS_ENDPOINT', checked, 'false')}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="backend-domain">Backend Custom Domain (optional)</Label>
+            <Input
+              id="backend-domain"
+              placeholder="myapp.example.com"
+              value={extraEnv.BACKEND_DOMAIN || ''}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('BACKEND_DOMAIN', e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Set a custom domain for the backend (leave empty for default subdomain)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="site-domain">Site Custom Domain (optional)</Label>
+            <Input
+              id="site-domain"
+              placeholder="site.example.com"
+              value={extraEnv.SITE_DOMAIN || ''}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('SITE_DOMAIN', e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Set a custom domain for the site (leave empty for default subdomain)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="dashboard-domain">Dashboard Custom Domain (optional)</Label>
+            <Input
+              id="dashboard-domain"
+              placeholder="dash.example.com"
+              value={extraEnv.DASHBOARD_DOMAIN || ''}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('DASHBOARD_DOMAIN', e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Set a custom domain for the dashboard (leave empty for default subdomain)
+            </p>
+          </div>
+
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save & Restart Backend'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Archive className="h-4 w-4" />
+            Backup Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Enable Backups</div>
+              <div className="text-xs text-muted-foreground">Automatically backup this instance on schedule</div>
+            </div>
+            <Switch
+              checked={backupConfig?.enabled === 1}
+              onCheckedChange={(checked: boolean) => setBackupConfig({ ...backupConfig, enabled: checked ? 1 : 0 })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="backup-schedule">Backup Schedule (Cron)</Label>
+            <Input
+              id="backup-schedule"
+              placeholder="0 2 * * 0"
+              value={backupConfig?.schedule || '0 2 * * 0'}
+              onChange={(e) => setBackupConfig({ ...backupConfig, schedule: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Cron expression for backup schedule. Default: Weekly on Sunday at 2 AM (0 2 * * 0)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="backup-retention">Retention Days</Label>
+            <Input
+              id="backup-retention"
+              type="number"
+              placeholder="30"
+              value={backupConfig?.retention_days || 30}
+              onChange={(e) => setBackupConfig({ ...backupConfig, retention_days: parseInt(e.target.value) || 30 })}
+              disabled={!backupConfig?.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Number of days to keep backups before deletion
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="backup-types">Backup Types</Label>
+            <Select
+              value={backupConfig?.backup_types || 'database,volume'}
+              onValueChange={(value) => setBackupConfig({ ...backupConfig, backup_types: value })}
+              disabled={!backupConfig?.enabled}
+            >
+              <SelectTrigger id="backup-types">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="database">Database Only</SelectItem>
+                <SelectItem value="volume">Volume Only</SelectItem>
+                <SelectItem value="database,volume">Database & Volume</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="rsync-target">Rsync Target (optional)</Label>
+            <Input
+              id="rsync-target"
+              placeholder="user@host:/path/to/backups"
+              value={backupConfig?.rsync_target || ''}
+              onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
+              disabled={!backupConfig?.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Rsync destination for syncing backups (e.g., for Google Drive, Koofr, etc.)
+            </p>
+          </div>
+
+          <Button
+            onClick={() =>
+            {
+              setSavingBackup(true);
+              saveBackupConfigMutation.mutate(backupConfig);
+            }}
+            disabled={savingBackup}
           >
-            <SelectTrigger id="backup-types">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="database">Database Only</SelectItem>
-              <SelectItem value="volume">Volume Only</SelectItem>
-              <SelectItem value="database,volume">Database & Volume</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="rsync-target">Rsync Target (optional)</Label>
-          <Input
-            id="rsync-target"
-            placeholder="user@host:/path/to/backups"
-            value={backupConfig?.rsync_target || ''}
-            onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
-            disabled={!backupConfig?.enabled}
-          />
-          <p className="text-xs text-muted-foreground">
-            Rsync destination for syncing backups (e.g., for Google Drive, Koofr, etc.)
-          </p>
-        </div>
-
-        <Button
-          onClick={() => {
-            setSavingBackup(true);
-            saveBackupConfigMutation.mutate(backupConfig);
-          }}
-          disabled={savingBackup}
-        >
-          {savingBackup ? 'Saving...' : 'Save Backup Configuration'}
-        </Button>
-      </CardContent>
-    </Card>
+            {savingBackup ? 'Saving...' : 'Save Backup Configuration'}
+          </Button>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
