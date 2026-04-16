@@ -36,7 +36,10 @@ app.use(express.json());
 // Auth middleware — skip if AUTH_PASSWORD not set
 app.use('/api', (req, res, next) => {
   if (!isAuthEnabled()) return next();
-  if (req.path === '/login' || req.path === '/health' || req.path.startsWith('/version') || req.path.startsWith('/settings')) return next();
+  // Only these paths are public. Note: /version/update is intentionally NOT
+  // public — it must only be callable by authenticated users.
+  const publicPaths = new Set(['/login', '/health', '/version', '/version/check', '/settings']);
+  if (publicPaths.has(req.path)) return next();
 
   const auth = req.headers.authorization;
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;

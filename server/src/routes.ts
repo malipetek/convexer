@@ -609,6 +609,24 @@ router.post('/version/update', async (_req: Request, res: Response) =>
 
   try {
     console.log('Starting updater container...');
+
+    // Ensure the image is present locally. dockerode.createContainer does NOT
+    // auto-pull, so we pull explicitly. This is idempotent — fast no-op once
+    // the image is cached.
+    const images = await docker.listImages({ filters: JSON.stringify({ reference: [updaterImage] }) });
+    if (images.length === 0) {
+      console.log(`Pulling ${updaterImage}...`);
+      await new Promise<void>((resolve, reject) =>
+      {
+        docker.pull(updaterImage, (err: any, stream: NodeJS.ReadableStream) =>
+        {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (pErr: any) => pErr ? reject(pErr) : resolve());
+        });
+      });
+      console.log(`Pulled ${updaterImage}.`);
+    }
+
     const container = await docker.createContainer({
       Image: updaterImage,
       Cmd: ['sh', '-c', script],
