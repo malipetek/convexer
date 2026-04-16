@@ -6,8 +6,8 @@ const { Client } = pg;
 
 export async function getPostgresConnection(instance: Instance): Promise<pg.Client> {
   const client = new Client({
-    host: '127.0.0.1',
-    port: instance.postgres_port,
+    host: `convexer-postgres-${instance.name}`,
+    port: 5432,
     user: 'postgres',
     password: instance.postgres_password,
     database: instance.instance_name,
