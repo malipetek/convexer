@@ -13,7 +13,7 @@ import { Switch } from '../components/ui/switch';
 import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
-import MetricsGraph from '../components/MetricsGraph';
+import InstanceMetrics, { type MetricSample } from '../components/InstanceMetrics';
 
 const SCHEDULE_PRESETS = [
   { label: 'Daily at 2 AM', cron: '0 2 * * *' },
@@ -38,7 +38,7 @@ export default function InstanceDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const [metricsHistory, setMetricsHistory] = useState<Array<{ time: string; cpu: number; memory: number }>>([]);
+  const [metricsHistory, setMetricsHistory] = useState<MetricSample[]>([]);
   const [hostname, setHostname] = useState('');
   const [duplicating, setDuplicating] = useState(false);
   const [newInstanceName, setNewInstanceName] = useState('');
@@ -83,16 +83,24 @@ export default function InstanceDetail() {
   }, [settings]);
 
   useEffect(() => {
-    if (stats) {
-      const now = new Date().toLocaleTimeString();
-      setMetricsHistory(prev => {
-        const newHistory = [...prev, { time: now, cpu: stats.cpu_percent, memory: stats.memory_mb }];
-        if (newHistory.length > 60) {
-          return newHistory.slice(-60);
-        }
-        return newHistory;
-      });
-    }
+    if (!stats) return;
+    setMetricsHistory(prev =>
+    {
+      const sample: MetricSample = {
+        t: Date.now(),
+        cpu: stats.cpu_percent,
+        memMb: stats.memory_mb,
+        memLimitMb: stats.memory_limit_mb,
+        netRx: stats.network_rx_bytes,
+        netTx: stats.network_tx_bytes,
+        diskR: stats.disk_read_bytes,
+        diskW: stats.disk_write_bytes,
+      };
+      const next = [...prev, sample];
+      // Keep ~15 minutes at 5s sampling (180 samples) plus a little headroom.
+      if (next.length > 240) return next.slice(-240);
+      return next;
+    });
   }, [stats]);
 
   const startMutation = useMutation({
@@ -528,20 +536,7 @@ export default function InstanceDetail() {
           </TabsContent>
 
           <TabsContent value="metrics">
-            <Card>
-              <CardHeader>
-                <CardTitle>Historical Metrics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {instance.status === 'running' ? (
-                  <MetricsGraph data={metricsHistory} />
-                ) : (
-                  <div className="text-center text-muted-foreground py-12">
-                    Instance must be running to view metrics
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <InstanceMetrics samples={metricsHistory} isRunning={instance.status === 'running'} />
           </TabsContent>
 
           <TabsContent value="database">
