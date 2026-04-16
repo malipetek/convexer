@@ -5,7 +5,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
 function ServerStats ()
@@ -383,93 +384,129 @@ export default function Settings() {
 
   return (
     <div className="p-8">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold mb-6">Global Settings</h1>
-        
-        <Card>
-          <CardHeader>
-            <CardTitle>Hostname Configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="hostname">Base Hostname</Label>
-              <Input
-                id="hostname"
-                placeholder="convexer.example.com"
-                value={hostname}
-                onChange={(e) => setHostname(e.target.value)}
-              />
-              <p className="text-sm text-muted-foreground">
-                This hostname will be used as the base for instance subdomains. For example, if set to "convexer.example.com", instances will be accessible as "instance-name.convexer.example.com".
-              </p>
-            </div>
-
-            <Button onClick={handleSave} disabled={saving}>
-              <Save className="h-4 w-4 mr-2" />
-              {saving ? 'Saving...' : 'Save Settings'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Server Stats</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ServerStats />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>App Updates</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">Current Version</div>
-                <div className="text-2xl font-bold">{versionInfo?.current_version || 'Loading...'}</div>
-              </div>
-              {versionInfo?.latest_version && (
-                <div className="text-right">
-                  <div className="text-sm font-medium">Latest Version</div>
-                  <Badge variant={versionInfo.has_update ? 'default' : 'secondary'}>
-                    {versionInfo.latest_version}
-                  </Badge>
-                </div>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Global Settings</h1>
+          {versionInfo?.current_version && (
+            <Badge variant={versionInfo.has_update ? 'default' : 'secondary'} className="font-mono">
+              v{versionInfo.current_version}
+              {versionInfo.has_update && versionInfo.latest_version && (
+                <span className="ml-1 opacity-80">→ {versionInfo.latest_version}</span>
               )}
-            </div>
+            </Badge>
+          )}
+        </div>
 
-            {versionInfo?.has_update && (
-              <div className="p-3 bg-primary/10 border border-primary/20 rounded-md">
-                <div className="text-sm font-medium text-primary">Update Available</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Version {versionInfo.latest_version} is available
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleCheckUpdate}
-                disabled={checkingUpdate}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${checkingUpdate ? 'animate-spin' : ''}`} />
-                {checkingUpdate ? 'Checking...' : 'Check for Updates'}
-              </Button>
+        <Tabs defaultValue="general" className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="general">
+              <SettingsIcon className="h-4 w-4 mr-2" />
+              General
+            </TabsTrigger>
+            <TabsTrigger value="server">
+              <Activity className="h-4 w-4 mr-2" />
+              Server Stats
+            </TabsTrigger>
+            <TabsTrigger value="updates">
+              <PackageCheck className="h-4 w-4 mr-2" />
+              Updates
               {versionInfo?.has_update && (
-                <Button
-                  onClick={handleUpdate}
-                  disabled={updating || updateMutation.isPending}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  {updating || updateMutation.isPending ? 'Updating...' : 'Update Now'}
-                </Button>
+                <Badge variant="default" className="ml-2 h-5 px-1.5 text-[10px]">new</Badge>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="general" className="mt-0">
+            <Card>
+              <CardHeader>
+                <CardTitle>Hostname Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="hostname">Base Hostname</Label>
+                  <Input
+                    id="hostname"
+                    placeholder="convexer.example.com"
+                    value={hostname}
+                    onChange={(e) => setHostname(e.target.value)}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    This hostname will be used as the base for instance subdomains. For example, if set to "convexer.example.com", instances will be accessible as "instance-name.convexer.example.com".
+                  </p>
+                </div>
+
+                <Button onClick={handleSave} disabled={saving}>
+                  <Save className="h-4 w-4 mr-2" />
+                  {saving ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="server" className="mt-0">
+            <Card>
+              <CardHeader>
+                <CardTitle>Server Stats</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ServerStats />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="updates" className="mt-0">
+            <Card>
+              <CardHeader>
+                <CardTitle>App Updates</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">Current Version</div>
+                    <div className="text-2xl font-bold">{versionInfo?.current_version || 'Loading...'}</div>
+                  </div>
+                  {versionInfo?.latest_version && (
+                    <div className="text-right">
+                      <div className="text-sm font-medium">Latest Version</div>
+                      <Badge variant={versionInfo.has_update ? 'default' : 'secondary'}>
+                        {versionInfo.latest_version}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+
+                {versionInfo?.has_update && (
+                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-md">
+                    <div className="text-sm font-medium text-primary">Update Available</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Version {versionInfo.latest_version} is available
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleCheckUpdate}
+                    disabled={checkingUpdate}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                    {checkingUpdate ? 'Checking...' : 'Check for Updates'}
+                  </Button>
+                  {versionInfo?.has_update && (
+                    <Button
+                      onClick={handleUpdate}
+                      disabled={updating || updateMutation.isPending}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      {updating || updateMutation.isPending ? 'Updating...' : 'Update Now'}
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
