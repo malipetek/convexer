@@ -62,6 +62,7 @@ import * as postgres from './postgres.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import path from 'path';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -1061,6 +1062,55 @@ router.post('/backup/settings', async (req: Request, res: Response) =>
     res.json({ settings });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// SSH key management for rsync
+router.get('/backup/ssh-key', async (_req: Request, res: Response) =>
+{
+  try {
+    const os = await import('os');
+    const fs = await import('fs/promises');
+    const sshDir = path.join(os.homedir(), '.ssh');
+    const keyPath = path.join(sshDir, 'id_ed25519');
+    const pubKeyPath = keyPath + '.pub';
+
+    await fs.mkdir(sshDir, { recursive: true, mode: 0o700 });
+
+    let exists = false;
+    try {
+      await fs.access(pubKeyPath);
+      exists = true;
+    } catch { }
+
+    if (!exists) {
+      await execAsync(`ssh-keygen -t ed25519 -f "${keyPath}" -N "" -C "convexer-backup@$(hostname)"`);
+    }
+
+    const publicKey = await fs.readFile(pubKeyPath, 'utf-8');
+    res.json({ publicKey: publicKey.trim() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test rsync connection
+router.post('/backup/test-rsync', async (req: Request, res: Response) =>
+{
+  try {
+    const { target } = req.body;
+    if (!target) {
+      res.status(400).json({ error: 'Target is required' });
+      return;
+    }
+    // Test with dry-run and a simple echo
+    const { stdout, stderr } = await execAsync(
+      `rsync -avzn --timeout=10 -e "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" /etc/hostname "${target}/"`,
+      { timeout: 15000 }
+    );
+    res.json({ success: true, output: stdout + stderr });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, stderr: err.stderr });
   }
 });
 

@@ -287,13 +287,23 @@ export function getBackupHistory (instanceId: string, limit = 50): BackupHistory
   return db.prepare('SELECT * FROM backup_history WHERE instance_id = ? ORDER BY started_at DESC LIMIT ?').all(instanceId, limit) as BackupHistory[];
 }
 
-export function createBackupHistory (history: Omit<BackupHistory, 'started_at'>): BackupHistory
+export function createBackupHistory (history: Partial<BackupHistory> & { id: string; instance_id: string; backup_type: string }): BackupHistory
 {
   const stmt = db.prepare(`
     INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, error_message, completed_at)
     VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @error_message, @completed_at)
   `);
-  stmt.run(history);
+  stmt.run({
+    id: history.id,
+    instance_id: history.instance_id,
+    backup_type: history.backup_type,
+    status: history.status ?? 'pending',
+    size_bytes: history.size_bytes ?? null,
+    file_path: history.file_path ?? null,
+    storage_type: history.storage_type ?? 'local',
+    error_message: history.error_message ?? null,
+    completed_at: history.completed_at ?? null,
+  });
   return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(history.id) as BackupHistory;
 }
 

@@ -190,6 +190,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(settings),
     }),
+    getSshKey: () => request<{ publicKey: string }>('/backup/ssh-key'),
+    testRsync: (target: string) => request<{ success: boolean; output: string }>('/backup/test-rsync', {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    }),
   },
   duplicateInstance: (id: string, newName: string) => request<{ instance: any }>(`/instances/${id}/duplicate`, {
     method: 'POST',

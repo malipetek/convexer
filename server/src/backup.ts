@@ -120,7 +120,7 @@ export async function rsyncBackup(filePath: string, target: string): Promise<{ s
     const fileName = path.basename(filePath);
     const destPath = targetPath + fileName;
     
-    await execAsync(`rsync -avz "${filePath}" "${destPath}"`);
+    await execAsync(`rsync -avz -e "ssh -o StrictHostKeyChecking=accept-new" "${filePath}" "${destPath}"`);
     
     return { success: true };
   } catch (err: any) {

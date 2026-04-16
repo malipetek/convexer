@@ -15,6 +15,15 @@ import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import MetricsGraph from '../components/MetricsGraph';
 
+const SCHEDULE_PRESETS = [
+  { label: 'Daily at 2 AM', cron: '0 2 * * *' },
+  { label: 'Every 2 days at 2 AM', cron: '0 2 */2 * *' },
+  { label: 'Every 3 days at 2 AM', cron: '0 2 */3 * *' },
+  { label: 'Weekly on Sunday at 2 AM', cron: '0 2 * * 0' },
+  { label: 'Every 2 weeks on Sunday at 2 AM', cron: '0 2 */14 * *' },
+  { label: 'Monthly on the 1st at 2 AM', cron: '0 2 1 * *' },
+];
+
 function formatBytes (bytes: number): string
 {
   if (bytes === 0) return '0 B';
@@ -715,17 +724,35 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="backup-schedule">Backup Schedule (Cron)</Label>
-            <Input
-              id="backup-schedule"
-              placeholder="0 2 * * 0"
-              value={backupConfig?.schedule || '0 2 * * 0'}
-              onChange={(e) => setBackupConfig({ ...backupConfig, schedule: e.target.value })}
+            <Label htmlFor="backup-schedule">Backup Frequency</Label>
+            <Select
+              value={SCHEDULE_PRESETS.find(p => p.cron === (backupConfig?.schedule || '0 2 * * 0'))?.cron || 'custom'}
+              onValueChange={(value) =>
+              {
+                if (value !== 'custom') {
+                  setBackupConfig({ ...backupConfig, schedule: value });
+                }
+              }}
               disabled={!backupConfig?.enabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Cron expression for backup schedule. Default: Weekly on Sunday at 2 AM (0 2 * * 0)
-            </p>
+            >
+              <SelectTrigger id="backup-schedule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SCHEDULE_PRESETS.map(preset => (
+                  <SelectItem key={preset.cron} value={preset.cron}>{preset.label}</SelectItem>
+                ))}
+                <SelectItem value="custom">Custom (cron expression)</SelectItem>
+              </SelectContent>
+            </Select>
+            {!SCHEDULE_PRESETS.find(p => p.cron === (backupConfig?.schedule || '0 2 * * 0')) && (
+              <Input
+                placeholder="0 2 * * 0"
+                value={backupConfig?.schedule || ''}
+                onChange={(e) => setBackupConfig({ ...backupConfig, schedule: e.target.value })}
+                disabled={!backupConfig?.enabled}
+              />
+            )}
           </div>
 
           <div className="space-y-2">
@@ -761,19 +788,10 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="rsync-target">Rsync Target (optional)</Label>
-            <Input
-              id="rsync-target"
-              placeholder="user@host:/path/to/backups"
-              value={backupConfig?.rsync_target || ''}
-              onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Rsync destination for syncing backups (e.g., for Google Drive, Koofr, etc.)
-            </p>
-          </div>
+          <RsyncSection
+            backupConfig={backupConfig}
+            setBackupConfig={setBackupConfig}
+          />
 
           <Button
             onClick={() =>
@@ -788,6 +806,122 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
         </CardContent>
       </Card>
     </>
+  );
+}
+
+function RsyncSection ({ backupConfig, setBackupConfig }: { backupConfig: any; setBackupConfig: any })
+{
+  const [showSshKey, setShowSshKey] = useState(false);
+  const [sshKey, setSshKey] = useState('');
+  const [loadingKey, setLoadingKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const loadSshKey = async () =>
+  {
+    setLoadingKey(true);
+    try {
+      const { publicKey } = await api.backup.getSshKey();
+      setSshKey(publicKey);
+      setShowSshKey(true);
+    } catch (err: any) {
+      alert(err.message || 'Failed to load SSH key');
+    } finally {
+      setLoadingKey(false);
+    }
+  };
+
+  const handleCopyKey = () =>
+  {
+    navigator.clipboard.writeText(sshKey);
+    alert('SSH public key copied to clipboard');
+  };
+
+  const handleTestRsync = async () =>
+  {
+    if (!backupConfig?.rsync_target) {
+      alert('Please enter an rsync target first');
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api.backup.testRsync(backupConfig.rsync_target);
+      setTestResult({ success: true, message: result.output || 'Connection successful!' });
+    } catch (err: any) {
+      setTestResult({ success: false, message: err.message || 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-semibold">Remote Sync via Rsync (optional)</Label>
+        <Button type="button" variant="outline" size="sm" onClick={loadSshKey} disabled={loadingKey}>
+          {loadingKey ? 'Loading...' : 'Show SSH Public Key'}
+        </Button>
+      </div>
+
+      {showSshKey && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Add this SSH public key to <code className="bg-background px-1 rounded">~/.ssh/authorized_keys</code> on your remote server to enable passwordless rsync:
+          </p>
+          <div className="relative">
+            <pre className="text-xs p-2 bg-background border rounded overflow-x-auto break-all whitespace-pre-wrap">{sshKey}</pre>
+            <Button type="button" size="sm" variant="ghost" className="absolute top-1 right-1" onClick={handleCopyKey}>
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="rsync-target" className="text-xs">Rsync Target</Label>
+        <Input
+          id="rsync-target"
+          placeholder="user@host:/path/to/backups"
+          value={backupConfig?.rsync_target || ''}
+          onChange={(e) => setBackupConfig({ ...backupConfig, rsync_target: e.target.value })}
+          disabled={!backupConfig?.enabled}
+        />
+        <p className="text-xs text-muted-foreground">
+          Format: <code className="bg-background px-1 rounded">user@host:/path</code> (SSH-based) or <code className="bg-background px-1 rounded">/local/path</code>. Supports any rsync-compatible destination (remote server, mounted NFS, etc.).
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleTestRsync}
+          disabled={testing || !backupConfig?.rsync_target}
+        >
+          {testing ? 'Testing...' : 'Test Connection'}
+        </Button>
+      </div>
+
+      {testResult && (
+        <div className={`text-xs p-2 rounded ${testResult.success ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+          <div className="font-semibold">{testResult.success ? 'Connection OK' : 'Connection Failed'}</div>
+          <pre className="whitespace-pre-wrap mt-1">{testResult.message}</pre>
+        </div>
+      )}
+
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer font-medium">How to set up rsync?</summary>
+        <ol className="mt-2 space-y-1 list-decimal list-inside pl-2">
+          <li>Click <strong>Show SSH Public Key</strong> above and copy it</li>
+          <li>On your destination server, add it to <code>~/.ssh/authorized_keys</code></li>
+          <li>Ensure <code>rsync</code> is installed on the destination (<code>apt install rsync</code>)</li>
+          <li>For cloud storage (Koofr, Google Drive), use <code>rclone</code> with an SFTP mount on a VPS</li>
+          <li>Enter the target as <code>user@host:/path</code> and click <strong>Test Connection</strong></li>
+        </ol>
+      </details>
+    </div>
   );
 }
 

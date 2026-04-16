@@ -28,6 +28,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - convexer-data:/app/server/data
+      - convexer-ssh:/root/.ssh
+      - convexer-backups:/app/server/data/backups
     environment:
       - DATA_DIR=/app/server/data
       - DOMAIN=${DOMAIN:-malipetek.online}
@@ -46,6 +48,8 @@ services:
 
 volumes:
   convexer-data:
+  convexer-ssh:
+  convexer-backups:
 
 networks:
   convexer-net:
