@@ -5,7 +5,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick } from 'lucide-react';
+import { Switch } from '../components/ui/switch';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Archive } from 'lucide-react';
 import { api } from '../api';
 
 function ServerStats ()
@@ -307,10 +308,18 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [backupSettings, setBackupSettings] = useState<any>(null);
+  const [backupSettingsChanged, setBackupSettingsChanged] = useState(false);
+  const [savingBackup, setSavingBackup] = useState(false);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
+  });
+
+  const { data: backupSettingsData } = useQuery({
+    queryKey: ['backupSettings'],
+    queryFn: () => api.backup.getSettings(),
   });
 
   useEffect(() =>
@@ -319,6 +328,13 @@ export default function Settings() {
       setHostname(settings.hostname || '');
     }
   }, [settings]);
+
+  useEffect(() =>
+  {
+    if (backupSettingsData) {
+      setBackupSettings(backupSettingsData.settings);
+    }
+  }, [backupSettingsData]);
 
   const { data: versionInfo } = useQuery({
     queryKey: ['version'],
@@ -381,6 +397,26 @@ export default function Settings() {
     }
   };
 
+  const handleBackupSettingsChange = (updates: any) =>
+  {
+    setBackupSettings({ ...backupSettings, ...updates });
+    setBackupSettingsChanged(true);
+  };
+
+  const handleSaveBackupSettings = async () =>
+  {
+    setSavingBackup(true);
+    try {
+      await api.backup.updateSettings(backupSettings);
+      setBackupSettingsChanged(false);
+      alert('Backup settings saved');
+    } catch (err: any) {
+      alert(err.message || 'Failed to save backup settings');
+    } finally {
+      setSavingBackup(false);
+    }
+  };
+
   return (
     <div className="p-8">
       <div className="max-w-2xl mx-auto space-y-6">
@@ -417,6 +453,75 @@ export default function Settings() {
           </CardHeader>
           <CardContent>
             <ServerStats />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Archive className="h-4 w-4" />
+              Backup Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Enable Global Backups</div>
+                <div className="text-xs text-muted-foreground">Automatically backup all instances on schedule</div>
+              </div>
+              <Switch
+                checked={backupSettings?.enabled === 1}
+                onCheckedChange={(checked) => handleBackupSettingsChange({ enabled: checked ? 1 : 0 })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="backup-schedule">Backup Schedule (Cron)</Label>
+              <Input
+                id="backup-schedule"
+                placeholder="0 2 * * 0"
+                value={backupSettings?.default_schedule || ''}
+                onChange={(e) => handleBackupSettingsChange({ default_schedule: e.target.value })}
+                disabled={!backupSettings?.enabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                Cron expression for backup schedule. Default: Weekly on Sunday at 2 AM (0 2 * * 0)
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="backup-retention">Retention Days</Label>
+              <Input
+                id="backup-retention"
+                type="number"
+                placeholder="30"
+                value={backupSettings?.default_retention_days || ''}
+                onChange={(e) => handleBackupSettingsChange({ default_retention_days: parseInt(e.target.value) || 30 })}
+                disabled={!backupSettings?.enabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                Number of days to keep backups before deletion
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="backup-path">Default Backup Path</Label>
+              <Input
+                id="backup-path"
+                placeholder="/app/backups"
+                value={backupSettings?.default_local_path || ''}
+                onChange={(e) => handleBackupSettingsChange({ default_local_path: e.target.value })}
+                disabled={!backupSettings?.enabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                Default local path for storing backups (optional)
+              </p>
+            </div>
+
+            <Button onClick={handleSaveBackupSettings} disabled={!backupSettingsChanged || savingBackup}>
+              <Save className="h-4 w-4 mr-2" />
+              {savingBackup ? 'Saving...' : 'Save Backup Settings'}
+            </Button>
           </CardContent>
         </Card>
 

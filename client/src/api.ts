@@ -171,4 +171,28 @@ export const api = {
       method: 'POST',
     }),
   },
+  backup: {
+    getConfig: (id: string) => request<{ config: any }>(`/instances/${id}/backup/config`),
+    createConfig: (id: string, config: any) => request<{ config: any }>(`/instances/${id}/backup/config`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+    deleteConfig: (id: string) => request<{ success: boolean }>(`/instances/${id}/backup/config`, {
+      method: 'DELETE',
+    }),
+    getHistory: (id: string, limit = 50) => request<{ history: any[] }>(`/instances/${id}/backup/history?limit=${limit}`),
+    triggerBackup: (id: string, type = 'database,volume') => request<{ success: boolean }>(`/instances/${id}/backup/trigger`, {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    }),
+    getSettings: () => request<{ settings: any }>('/backup/settings'),
+    updateSettings: (settings: any) => request<{ settings: any }>('/backup/settings', {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    }),
+  },
+  duplicateInstance: (id: string, newName: string) => request<{ instance: any }>(`/instances/${id}/duplicate`, {
+    method: 'POST',
+    body: JSON.stringify({ newName }),
+  }),
 };

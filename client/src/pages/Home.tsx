@@ -1,13 +1,43 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { Card, CardContent } from '../components/ui/card';
-import { Database } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { Database, Copy } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Home() {
+  const queryClient = useQueryClient();
+  const [duplicatingInstance, setDuplicatingInstance] = useState<string | null>(null);
+  const [newInstanceName, setNewInstanceName] = useState('');
+
   const { data: instances, isLoading } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api.getInstances(),
   });
+
+  const duplicateMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.duplicateInstance(id, name),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      setDuplicatingInstance(null);
+      setNewInstanceName('');
+      alert('Instance duplicated successfully');
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to duplicate instance');
+    },
+  });
+
+  const handleDuplicate = (instanceId: string) =>
+  {
+    if (!newInstanceName.trim()) {
+      alert('Please enter a name for the new instance');
+      return;
+    }
+    duplicateMutation.mutate({ id: instanceId, name: newInstanceName });
+  };
 
   if (isLoading) {
     return (
@@ -48,6 +78,53 @@ export default function Home() {
                 <div>Backend: :{instance.backend_port}</div>
                 <div>Dashboard: :{instance.dashboard_port}</div>
               </div>
+              {duplicatingInstance === instance.id && (
+                <div className="mt-4 pt-4 border-t space-y-2">
+                  <input
+                    type="text"
+                    placeholder="New instance name"
+                    value={newInstanceName}
+                    onChange={(e) => setNewInstanceName(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border rounded-md"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleDuplicate(instance.id)}
+                      disabled={duplicateMutation.isPending}
+                    >
+                      {duplicateMutation.isPending ? 'Duplicating...' : 'Confirm'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                      {
+                        setDuplicatingInstance(null);
+                        setNewInstanceName('');
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {duplicatingInstance !== instance.id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-4 w-full"
+                  onClick={() =>
+                  {
+                    setDuplicatingInstance(instance.id);
+                    setNewInstanceName(`${instance.name}-copy`);
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicate
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}

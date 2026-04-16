@@ -3,16 +3,65 @@ import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import Docker from 'dockerode';
 import { Instance } from './types.js';
-import { getAllInstances, getInstance, createInstance, deleteInstance, allocatePorts, updateInstance } from './db.js';
-import { createAndStartInstance, startInstance, stopInstance, removeInstance, getContainerLogs } from './docker.js';
-import { removeTunnelRoutes, isTunnelEnabled, getTunnelDomain, getInstanceHostnames } from './tunnel.js';
-import { createSession, isAuthEnabled } from './auth.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import
+{
+  getAllInstances,
+  getInstance,
+  createInstance,
+  updateInstance,
+  deleteInstance,
+  allocatePorts,
+  getBackupConfig,
+  createBackupConfig,
+  updateBackupConfig,
+  deleteBackupConfig,
+  getBackupHistory,
+  getBackupSettings,
+  updateBackupSettings
+} from './db.js';
+import
+{
+  createAndStartInstance,
+  stopInstance,
+  removeInstance,
+  syncInstanceStatuses,
+  getContainerLogs,
+  ensureImages
+} from './docker.js';
+import
+{
+  listTables,
+  getTableSchema,
+  executeQuery,
+  createBackup,
+  restoreBackup,
+  exportTable,
+  importTable,
+  listExtensions,
+  loadExtension
+} from './postgres.js';
+import
+{
+  backupDatabase,
+  backupVolume,
+  performBackup
+} from './backup.js';
+import
+{
+  scheduleInstanceBackup,
+  unscheduleInstanceBackup,
+  refreshBackupScheduler
+} from './scheduler.js';
+import { randomUUID } from 'crypto';
 import { getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
+const execAsync = promisify(exec);
 const docker = new Docker();
 
 // Read version from package.json
@@ -867,5 +916,240 @@ function compareVersions (current: string, latest: string): boolean
 
   return false;
 }
+
+// Backup configuration routes
+router.get('/instances/:id/backup/config', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const config = getBackupConfig(id);
+    res.json({ config });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/backup/config', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+
+    const existingConfig = getBackupConfig(id);
+    const configData = req.body;
+
+    if (existingConfig) {
+      const updated = updateBackupConfig(id, configData);
+      if (configData.schedule) {
+        scheduleInstanceBackup(id, configData.schedule);
+      }
+      res.json({ config: updated });
+    } else {
+      const newConfig = createBackupConfig({
+        id: uuidv4(),
+        instance_id: id,
+        enabled: configData.enabled ?? 1,
+        schedule: configData.schedule || '0 2 * * 0',
+        retention_days: configData.retention_days || 30,
+        backup_types: configData.backup_types || 'database,volume',
+        local_path: configData.local_path,
+        rsync_target: configData.rsync_target,
+        s3_bucket: configData.s3_bucket,
+        s3_region: configData.s3_region,
+        s3_access_key: configData.s3_access_key,
+        s3_secret_key: configData.s3_secret_key,
+        s3_endpoint: configData.s3_endpoint,
+      });
+      if (newConfig.enabled) {
+        scheduleInstanceBackup(id, newConfig.schedule);
+      }
+      res.json({ config: newConfig });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/instances/:id/backup/config', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    unscheduleInstanceBackup(id);
+    deleteBackupConfig(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/backup/history', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const history = getBackupHistory(id, limit);
+    res.json({ history });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/backup/trigger', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+
+    const backupType = req.body.type || 'database,volume';
+    const backupId = uuidv4();
+
+    if (backupType.includes('database')) {
+      const result = await backupDatabase(instance, backupId);
+      if (!result.success) {
+        res.status(500).json({ error: result.error });
+        return;
+      }
+    }
+
+    if (backupType.includes('volume')) {
+      const volumeBackupId = uuidv4();
+      const result = await backupVolume(instance, volumeBackupId);
+      if (!result.success) {
+        res.status(500).json({ error: result.error });
+        return;
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Global backup settings routes
+router.get('/backup/settings', async (_req: Request, res: Response) =>
+{
+  try {
+    const settings = getBackupSettings();
+    res.json({ settings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/backup/settings', async (req: Request, res: Response) =>
+{
+  try {
+    const settings = updateBackupSettings(req.body);
+    if (settings.enabled) {
+      const { scheduleGlobalBackup } = await import('./scheduler.js');
+      scheduleGlobalBackup(settings.default_schedule);
+    } else {
+      const { unscheduleGlobalBackup } = await import('./scheduler.js');
+      unscheduleGlobalBackup();
+    }
+    res.json({ settings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Instance duplication endpoint
+router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const sourceInstance = getInstance(id);
+    if (!sourceInstance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+
+    const { newName } = req.body;
+    if (!newName) {
+      res.status(400).json({ error: 'New instance name is required' });
+      return;
+    }
+
+    // Check if name is already taken
+    const { getAllInstances } = await import('./db.js');
+    const existingInstance = getAllInstances().find(i => i.name === newName);
+    if (existingInstance) {
+      res.status(400).json({ error: 'Instance name already exists' });
+      return;
+    }
+
+    // Create backup of source instance
+    const { randomUUID } = await import('crypto');
+    const dbBackupId = randomUUID();
+    const volBackupId = randomUUID();
+
+    const dbResult = await backupDatabase(sourceInstance, dbBackupId);
+    if (!dbResult.success) {
+      res.status(500).json({ error: `Database backup failed: ${dbResult.error}` });
+      return;
+    }
+
+    const volResult = await backupVolume(sourceInstance, volBackupId);
+    if (!volResult.success) {
+      res.status(500).json({ error: `Volume backup failed: ${volResult.error}` });
+      return;
+    }
+
+    // Allocate ports for new instance
+    const ports = allocatePorts();
+
+    // Create new instance
+    const { admin_key: _, instance_secret: __, ...rest } = sourceInstance;
+    const newInstance = createInstance({
+      id: uuidv4(),
+      name: newName,
+      status: 'creating',
+      backend_port: ports.backendPort,
+      site_proxy_port: ports.siteProxyPort,
+      dashboard_port: ports.dashboardPort,
+      postgres_port: ports.postgresPort,
+      volume_name: `convexer-${newName}-data`,
+      postgres_volume_name: `convexer-postgres-${newName}`,
+      postgres_password: randomUUID().replace(/-/g, ''),
+      instance_name: newName,
+      instance_secret: randomUUID().replace(/-/g, ''),
+      extra_env: sourceInstance.extra_env,
+    });
+
+    // Create and start new instance
+    await createAndStartInstance(newInstance);
+
+    // Restore database to new instance
+    if (dbResult.filePath) {
+      const sql = await (await import('fs/promises')).readFile(dbResult.filePath, 'utf-8');
+      await restoreBackup(newInstance, sql);
+    }
+
+    // Restore volume to new instance
+    if (volResult.filePath) {
+      const volume = docker.getVolume(newInstance.volume_name);
+      const info = await volume.inspect();
+      if (info.Mountpoint) {
+        await execAsync(`tar -xzf "${volResult.filePath}" -C "${info.Mountpoint}"`);
+      }
+    }
+
+    // Update instance status
+    updateInstance(newInstance.id, { status: 'running' });
+
+    res.json({ instance: getInstance(newInstance.id) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;

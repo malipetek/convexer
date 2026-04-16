@@ -6,6 +6,7 @@ import router from './routes.js';
 import { syncInstanceStatuses, ensureImages } from './docker.js';
 import { isAuthEnabled, isValidSession } from './auth.js';
 import Docker from 'dockerode';
+import { initializeBackupScheduler } from './scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
@@ -87,4 +88,11 @@ app.listen(PORT, async () =>
   ensureImages().catch(err => {
     console.warn('Failed to ensure images:', err.message);
   });
+
+  // Initialize backup scheduler
+  try {
+    initializeBackupScheduler();
+  } catch (err: any) {
+    console.warn('Failed to initialize backup scheduler:', err.message);
+  }
 });

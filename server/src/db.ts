@@ -65,6 +65,58 @@ for (const columnDef of postgresColumns) {
   }
 }
 
+// Backup configuration table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_configs (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    schedule TEXT NOT NULL DEFAULT '0 2 * * 0',
+    retention_days INTEGER NOT NULL DEFAULT 30,
+    backup_types TEXT NOT NULL DEFAULT 'database,volume',
+    local_path TEXT,
+    rsync_target TEXT,
+    s3_bucket TEXT,
+    s3_region TEXT,
+    s3_access_key TEXT,
+    s3_secret_key TEXT,
+    s3_endpoint TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+  )
+`);
+
+// Backup history table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_history (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    backup_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    size_bytes INTEGER,
+    file_path TEXT,
+    storage_type TEXT NOT NULL DEFAULT 'local',
+    error_message TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+  )
+`);
+
+// Global backup settings table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_settings (
+    id TEXT PRIMARY KEY DEFAULT 'global',
+    enabled INTEGER NOT NULL DEFAULT 0,
+    default_schedule TEXT NOT NULL DEFAULT '0 2 * * 0',
+    default_retention_days INTEGER NOT NULL DEFAULT 30,
+    default_local_path TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all() as Instance[];
 }
@@ -138,3 +190,145 @@ export function allocatePorts (): { backendPort: number; siteProxyPort: number; 
 }
 
 export default db;
+
+// Backup configuration functions
+export interface BackupConfig
+{
+  id: string;
+  instance_id: string;
+  enabled: number;
+  schedule: string;
+  retention_days: number;
+  backup_types: string;
+  local_path?: string;
+  rsync_target?: string;
+  s3_bucket?: string;
+  s3_region?: string;
+  s3_access_key?: string;
+  s3_secret_key?: string;
+  s3_endpoint?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackupHistory
+{
+  id: string;
+  instance_id: string;
+  backup_type: string;
+  status: string;
+  size_bytes?: number;
+  file_path?: string;
+  storage_type: string;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+}
+
+export interface BackupSettings
+{
+  id: string;
+  enabled: number;
+  default_schedule: string;
+  default_retention_days: number;
+  default_local_path?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getBackupConfig (instanceId: string): BackupConfig | undefined
+{
+  return db.prepare('SELECT * FROM backup_configs WHERE instance_id = ?').get(instanceId) as BackupConfig | undefined;
+}
+
+export function createBackupConfig (config: Omit<BackupConfig, 'created_at' | 'updated_at'>): BackupConfig
+{
+  const stmt = db.prepare(`
+    INSERT INTO backup_configs (id, instance_id, enabled, schedule, retention_days, backup_types, local_path, rsync_target, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint)
+    VALUES (@id, @instance_id, @enabled, @schedule, @retention_days, @backup_types, @local_path, @rsync_target, @s3_bucket, @s3_region, @s3_access_key, @s3_secret_key, @s3_endpoint)
+  `);
+  stmt.run(config);
+  return getBackupConfig(config.instance_id)!;
+}
+
+export function updateBackupConfig (instanceId: string, updates: Partial<BackupConfig>): BackupConfig | undefined
+{
+  const allowed = ['enabled', 'schedule', 'retention_days', 'backup_types', 'local_path', 'rsync_target', 's3_bucket', 's3_region', 's3_access_key', 's3_secret_key', 's3_endpoint'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return getBackupConfig(instanceId);
+
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  const stmt = db.prepare(`UPDATE backup_configs SET ${sets}, updated_at = datetime('now') WHERE instance_id = @instance_id`);
+  stmt.run({ instance_id: instanceId, ...updates });
+  return getBackupConfig(instanceId);
+}
+
+export function deleteBackupConfig (instanceId: string): boolean
+{
+  const result = db.prepare('DELETE FROM backup_configs WHERE instance_id = ?').run(instanceId);
+  return result.changes > 0;
+}
+
+export function getAllBackupConfigs (): BackupConfig[]
+{
+  return db.prepare('SELECT * FROM backup_configs').all() as BackupConfig[];
+}
+
+export function getBackupHistory (instanceId: string, limit = 50): BackupHistory[]
+{
+  return db.prepare('SELECT * FROM backup_history WHERE instance_id = ? ORDER BY started_at DESC LIMIT ?').all(instanceId, limit) as BackupHistory[];
+}
+
+export function createBackupHistory (history: Omit<BackupHistory, 'started_at'>): BackupHistory
+{
+  const stmt = db.prepare(`
+    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, error_message, completed_at)
+    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @error_message, @completed_at)
+  `);
+  stmt.run(history);
+  return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(history.id) as BackupHistory;
+}
+
+export function updateBackupHistory (id: string, updates: Partial<BackupHistory>): BackupHistory | undefined
+{
+  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'error_message', 'completed_at'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
+
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  const stmt = db.prepare(`UPDATE backup_history SET ${sets} WHERE id = @id`);
+  stmt.run({ id, ...updates });
+  return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
+}
+
+export function deleteOldBackups (instanceId: string, retentionDays: number): number
+{
+  const stmt = db.prepare(`
+    DELETE FROM backup_history
+    WHERE instance_id = ? AND started_at < datetime('now', '-' || ? || ' days')
+  `);
+  const result = stmt.run(instanceId, retentionDays);
+  return result.changes;
+}
+
+export function getBackupSettings (): BackupSettings | undefined
+{
+  return db.prepare('SELECT * FROM backup_settings WHERE id = ?').get('global') as BackupSettings | undefined;
+}
+
+export function updateBackupSettings (settings: Partial<BackupSettings>): BackupSettings
+{
+  const existing = getBackupSettings();
+  const stmt = db.prepare(`
+    INSERT INTO backup_settings (id, enabled, default_schedule, default_retention_days, default_local_path)
+    VALUES ('global', @enabled, @default_schedule, @default_retention_days, @default_local_path)
+    ON CONFLICT(id) DO UPDATE SET
+      enabled = coalesce(@enabled, enabled),
+      default_schedule = coalesce(@default_schedule, default_schedule),
+      default_retention_days = coalesce(@default_retention_days, default_retention_days),
+      default_local_path = coalesce(@default_local_path, default_local_path),
+      updated_at = datetime('now')
+  `);
+  stmt.run({ ...settings, id: 'global' });
+  return getBackupSettings()!;
+}
