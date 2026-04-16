@@ -1,7 +1,6 @@
 import Docker from 'dockerode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { PassThrough } from 'stream';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs/promises';
@@ -107,20 +106,24 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
     });
 
     try {
-      const attachStream = await container.attach({ stream: true, stdout: true, stderr: true });
       await container.start();
+      const { StatusCode } = await container.wait();
+      if (StatusCode !== 0) throw new Error(`tar exited with code ${StatusCode}`);
 
-      const chunks: Uint8Array[] = [];
-      await new Promise<void>((resolve, reject) =>
-      {
-        const stdoutPass = new PassThrough();
-        (docker.modem as any).demuxStream(attachStream, stdoutPass, new PassThrough());
-        stdoutPass.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-        stdoutPass.on('end', resolve);
-        attachStream.on('error', reject);
-      });
+      // container.logs() returns Buffer when follow=false
+      const raw = await container.logs({ stdout: true, stderr: false }) as unknown as Buffer;
 
-      await fs.writeFile(filePath, Buffer.concat(chunks) as any);
+      // Demux Docker multiplexed log stream (8-byte header per frame)
+      const output: any[] = [];
+      let pos = 0;
+      while (pos + 8 <= raw.length) {
+        const type = raw[pos];
+        const size = raw.readUInt32BE(pos + 4);
+        if (type === 1) output.push(raw.subarray(pos + 8, pos + 8 + size));
+        pos += 8 + size;
+      }
+
+      await fs.writeFile(filePath, Buffer.concat(output) as any);
     } finally {
       try { await container.remove({ force: true }); } catch { }
     }
