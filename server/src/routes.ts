@@ -70,8 +70,25 @@ const docker = new Docker();
 // Read version from package.json
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
-const CURRENT_VERSION = packageJson.version;
+// Read version from root package.json (single source of truth).
+// Falls back to server/package.json if the root isn't present (e.g. local dev runs).
+function readCurrentVersion (): string
+{
+  const candidates = [
+    join(__dirname, '../../package.json'), // root package.json (Docker runtime & monorepo)
+    join(__dirname, '../package.json'),    // server/package.json (fallback)
+  ];
+  for (const p of candidates) {
+    try {
+      const pkg = JSON.parse(readFileSync(p, 'utf-8'));
+      if (pkg?.version) return pkg.version;
+    } catch {
+      // try next candidate
+    }
+  }
+  return '0.0.0';
+}
+const CURRENT_VERSION = readCurrentVersion();
 
 const router = Router();
 
@@ -505,21 +522,31 @@ router.get('/version/check', async (_req: Request, res: Response) =>
 {
   try {
     const GITHUB_REPO = process.env.GITHUB_REPO || 'malipetek/convexer';
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Optional, for higher rate limits
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Optional, for higher rate limits / private repos
 
-    const headers: Record<string, string> = {
+    const baseHeaders: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'convexer-updater',
     };
-    if (GITHUB_TOKEN) {
-      headers['Authorization'] = `token ${GITHUB_TOKEN}`;
-    }
+    const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
-    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers,
+    const doFetch = (withAuth: boolean) => fetch(url, {
+      headers: withAuth && GITHUB_TOKEN
+        ? { ...baseHeaders, Authorization: `Bearer ${GITHUB_TOKEN}` }
+        : baseHeaders,
     });
 
+    let response = await doFetch(true);
+    // If the configured token is invalid/expired, retry unauthenticated —
+    // this repo is public so the call still succeeds.
+    if (response.status === 401 && GITHUB_TOKEN) {
+      console.warn('GitHub token rejected (401). Retrying without auth.');
+      response = await doFetch(false);
+    }
+
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`);
+      const body = await response.text().catch(() => '');
+      throw new Error(`GitHub API error: ${response.status} ${response.statusText} ${body.slice(0, 200)}`);
     }
 
     const release = await response.json();
@@ -540,37 +567,102 @@ router.get('/version/check', async (_req: Request, res: Response) =>
   }
 });
 
-// Trigger update - pulls from git and rebuilds
+// Trigger update - spawns an ephemeral host-side updater container that
+// pulls from git, rebuilds the image, and restarts the stack via docker compose.
+//
+// Requires:
+//   - /var/run/docker.sock mounted (already present for instance management)
+//   - HOST_PROJECT_PATH env var set to the absolute path of the repo on the host
+//     (e.g. /home/convexer) so we can bind-mount it into the updater container.
+//
+// The updater container runs detached and outlives this container's restart,
+// which is why we return before it finishes.
 router.post('/version/update', async (_req: Request, res: Response) =>
 {
+  const hostProjectPath = process.env.HOST_PROJECT_PATH;
+  if (!hostProjectPath) {
+    res.status(500).json({
+      error: 'HOST_PROJECT_PATH is not configured. Set it in docker-compose.yml to the host path of the repo (e.g. /home/convexer).',
+    });
+    return;
+  }
+
+  const branch = process.env.UPDATE_BRANCH || 'main';
+  const updaterImage = process.env.UPDATER_IMAGE || 'docker:27-cli';
+
+  // Script run inside the updater container. Uses the docker CLI + compose
+  // plugin from the image, and installs git on the fly.
+  const script = [
+    'set -eu',
+    'apk add --no-cache git >/dev/null',
+    'cd /repo',
+    'echo "[updater] git fetch"',
+    'git fetch origin',
+    `git checkout ${branch}`,
+    `git pull origin ${branch}`,
+    'echo "[updater] docker compose build"',
+    'docker compose build --no-cache',
+    'echo "[updater] docker compose up -d"',
+    'docker compose up -d',
+    'echo "[updater] done"',
+  ].join(' && ');
+
   try {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
+    console.log('Starting updater container...');
+    const container = await docker.createContainer({
+      Image: updaterImage,
+      Cmd: ['sh', '-c', script],
+      WorkingDir: '/repo',
+      Tty: false,
+      HostConfig: {
+        AutoRemove: true,
+        Binds: [
+          '/var/run/docker.sock:/var/run/docker.sock',
+          `${hostProjectPath}:/repo`,
+        ],
+      },
+      Labels: { 'convexer.role': 'updater' },
+    });
 
-    console.log('Starting update process...');
+    await container.start();
+    console.log(`Updater container ${container.id.slice(0, 12)} started.`);
 
-    // 1. Pull latest from git
-    console.log('Pulling latest changes from git...');
-    await execAsync('git fetch origin');
-    await execAsync('git checkout main');
-    await execAsync('git pull origin main');
-
-    // 2. Install dependencies
-    console.log('Installing dependencies...');
-    await execAsync('npm install');
-
-    // 3. Build client
-    console.log('Building client...');
-    await execAsync('npm run build');
-
-    // 4. If running in Docker, we need to restart the container
-    // This will be handled by the Docker restart policy or external orchestrator
-    console.log('Update complete. Server will restart to apply changes.');
-
-    res.json({ success: true, message: 'Update completed successfully' });
+    res.status(202).json({
+      success: true,
+      message: 'Update started. The server will restart shortly.',
+      updater_container_id: container.id,
+    });
   } catch (err: any) {
-    console.error('Update failed:', err);
+    console.error('Failed to start updater:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Tail logs of the most recent updater container (for UI progress display).
+router.get('/version/update/logs', async (_req: Request, res: Response) =>
+{
+  try {
+    const containers = await docker.listContainers({
+      all: true,
+      filters: JSON.stringify({ label: ['convexer.role=updater'] }),
+    });
+    if (containers.length === 0) {
+      res.json({ running: false, logs: '' });
+      return;
+    }
+    // Most recent first
+    containers.sort((a, b) => b.Created - a.Created);
+    const info = containers[0];
+    const container = docker.getContainer(info.Id);
+    const buf = await container.logs({ stdout: true, stderr: true, tail: 500 });
+    const logs = Buffer.isBuffer(buf) ? buf.toString('utf-8') : String(buf);
+    res.json({
+      running: info.State === 'running',
+      state: info.State,
+      status: info.Status,
+      logs,
+    });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

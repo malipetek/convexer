@@ -38,6 +38,11 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
       - GITHUB_REPO=${GITHUB_REPO:-malipetek/convexer}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # Absolute path of the repo on the HOST machine. The in-app updater
+      # bind-mounts this into an ephemeral container to run git pull +
+      # docker compose build/up. If unset, the update endpoint is disabled.
+      - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-}
+      - UPDATE_BRANCH=${UPDATE_BRANCH:-main}
     labels:
       - traefik.enable=true
       - traefik.http.routers.convexer.rule=Host(`malipetek.online`)
