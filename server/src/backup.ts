@@ -77,13 +77,6 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
   });
 
   try {
-    const volume = docker.getVolume(instance.volume_name);
-    const info = await volume.inspect();
-    
-    if (!info.Mountpoint) {
-      throw new Error('Volume mountpoint not found');
-    }
-    
     // Create backup directory
     const backupDir = path.join(process.env.DATA_DIR || process.cwd(), 'backups', instance.id);
     await fs.mkdir(backupDir, { recursive: true });
@@ -91,8 +84,14 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filePath = path.join(backupDir, `${instance.name}-volume-${timestamp}.tar.gz`);
     
-    // Create tar.gz of the volume
-    await execAsync(`tar -czf "${filePath}" -C "${info.Mountpoint}" .`);
+    // Pipe tar from a temporary alpine container that has the volume mounted.
+    // This works even though the Convexer container can't access host volume paths directly.
+    const { stdout } = await execAsync(
+      `docker run --rm -v "${instance.volume_name}:/data" alpine tar -czf - -C /data .`,
+      { encoding: 'buffer', maxBuffer: 500 * 1024 * 1024, timeout: 300000 } as any
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await fs.writeFile(filePath, stdout as any);
     
     const stats = await fs.stat(filePath);
     
