@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { PassThrough } from 'stream';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs/promises';
@@ -84,14 +85,36 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filePath = path.join(backupDir, `${instance.name}-volume-${timestamp}.tar.gz`);
     
-    // Pipe tar from a temporary alpine container that has the volume mounted.
-    // This works even though the Convexer container can't access host volume paths directly.
-    const { stdout } = await execAsync(
-      `docker run --rm -v "${instance.volume_name}:/data" alpine tar -czf - -C /data .`,
-      { encoding: 'buffer', maxBuffer: 500 * 1024 * 1024, timeout: 300000 } as any
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await fs.writeFile(filePath, stdout as any);
+    // Use Dockerode (via /var/run/docker.sock) to run an alpine container and capture tar output.
+    // The convexer container has no docker CLI, so execAsync('docker run...') fails.
+    const container = await docker.createContainer({
+      Image: 'alpine',
+      Cmd: ['tar', '-czf', '-', '-C', '/data', '.'],
+      AttachStdout: true,
+      AttachStderr: true,
+      HostConfig: {
+        Binds: [`${instance.volume_name}:/data:ro`],
+      },
+    });
+
+    try {
+      const attachStream = await container.attach({ stream: true, stdout: true, stderr: true });
+      await container.start();
+
+      const chunks: Uint8Array[] = [];
+      await new Promise<void>((resolve, reject) =>
+      {
+        const stdoutPass = new PassThrough();
+        (docker.modem as any).demuxStream(attachStream, stdoutPass, new PassThrough());
+        stdoutPass.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+        stdoutPass.on('end', resolve);
+        attachStream.on('error', reject);
+      });
+
+      await fs.writeFile(filePath, Buffer.concat(chunks) as any);
+    } finally {
+      try { await container.remove({ force: true }); } catch { }
+    }
     
     const stats = await fs.stat(filePath);
     
