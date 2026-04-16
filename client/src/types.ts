@@ -26,4 +26,11 @@ export interface InstanceStats
   memory_mb: number;
   memory_limit_mb: number;
   volume_size_bytes: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
+  disk_read_bytes: number;
+  disk_write_bytes: number;
+  system_disk_total: number;
+  system_disk_used: number;
+  system_disk_available: number;
 }

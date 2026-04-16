@@ -10,10 +10,19 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
-import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import MetricsGraph from '../components/MetricsGraph';
+
+function formatBytes (bytes: number): string
+{
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
 
 export default function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -307,7 +316,7 @@ export default function InstanceDetail() {
                     <CardTitle>Live Metrics</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-3 gap-6">
+                    <div className="grid grid-cols-3 gap-6 mb-6">
                       <div className="text-center">
                         <MetricsGauge
                           value={stats?.cpu_percent || 0}
@@ -337,7 +346,7 @@ export default function InstanceDetail() {
                         <MetricsGauge
                           value={stats?.volume_size_bytes ? stats.volume_size_bytes / (1024 * 1024 * 1024) : 0}
                           max={50}
-                          label="Disk"
+                          label="Volume"
                           color="#f59e0b"
                         />
                         <div className="mt-2 text-sm font-semibold">
@@ -345,6 +354,61 @@ export default function InstanceDetail() {
                         </div>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-muted rounded-lg">
+                        <h3 className="text-sm font-semibold mb-2">Network I/O</h3>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">RX:</span>
+                            <span className="font-mono">{formatBytes(stats?.network_rx_bytes || 0)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">TX:</span>
+                            <span className="font-mono">{formatBytes(stats?.network_tx_bytes || 0)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-4 bg-muted rounded-lg">
+                        <h3 className="text-sm font-semibold mb-2">Disk I/O</h3>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Read:</span>
+                            <span className="font-mono">{formatBytes(stats?.disk_read_bytes || 0)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Write:</span>
+                            <span className="font-mono">{formatBytes(stats?.disk_write_bytes || 0)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {stats && stats.system_disk_total > 0 && (
+                      <div className="mt-4 p-4 bg-muted rounded-lg">
+                        <h3 className="text-sm font-semibold mb-2">System Disk Usage</h3>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total:</span>
+                            <span className="font-mono">{formatBytes(stats.system_disk_total)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Used:</span>
+                            <span className="font-mono">{formatBytes(stats.system_disk_used)} ({((stats.system_disk_used / stats.system_disk_total) * 100).toFixed(1)}%)</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Available:</span>
+                            <span className="font-mono">{formatBytes(stats.system_disk_available)}</span>
+                          </div>
+                          <div className="w-full bg-secondary rounded-full h-2 mt-2">
+                            <div
+                              className="bg-blue-500 h-2 rounded-full"
+                              style={{ width: `${(stats.system_disk_used / stats.system_disk_total) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -524,12 +588,44 @@ function InstanceSettings({ instance }: { instance: any }) {
 function InstanceLogs({ instanceId }: { instanceId: string }) {
   const [container, setContainer] = useState<'backend' | 'dashboard'>('backend');
   const logRef = useRef<HTMLPreElement>(null);
+  const queryClient = useQueryClient();
 
   const { data, error } = useQuery({
     queryKey: ['logs', instanceId, container],
     queryFn: () => api.getLogs(instanceId, container),
     refetchInterval: 3000,
   });
+
+  const restartMutation = useMutation({
+    mutationFn: () => api.restartContainer(instanceId, container),
+    onSuccess: () =>
+    {
+      alert(`${container} container restarted successfully`);
+      queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to restart container');
+    },
+  });
+
+  const handleDownloadLogs = async () =>
+  {
+    try {
+      const response = await api.downloadLogs(instanceId, container);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${instanceId}-${container}-logs-${Date.now()}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.message || 'Failed to download logs');
+    }
+  };
 
   useEffect(() => {
     if (logRef.current) {
@@ -539,6 +635,19 @@ function InstanceLogs({ instanceId }: { instanceId: string }) {
 
   return (
     <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle>Container Logs</CardTitle>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={handleDownloadLogs}>
+            <Download className="h-4 w-4 mr-1" />
+            Download
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => restartMutation.mutate()} disabled={restartMutation.isPending}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${restartMutation.isPending ? 'animate-spin' : ''}`} />
+            Restart
+          </Button>
+        </div>
+      </CardHeader>
       <CardContent className="p-0">
         <Tabs value={container} onValueChange={(value) => setContainer(value as 'backend' | 'dashboard')}>
           <TabsList className="w-full rounded-none border-b">
@@ -579,14 +688,19 @@ function DatabaseTab ({ instance }: { instance: any })
   const [queryResults, setQueryResults] = useState<any[] | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [tableSchema, setTableSchema] = useState<any[] | null>(null);
+  const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importTableName, setImportTableName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: tables, isLoading: tablesLoading } = useQuery({
+  const { data: tables, isLoading: tablesLoading, refetch: refetchTables } = useQuery({
     queryKey: ['postgres-tables', instance.id],
     queryFn: () => api.postgres.listTables(instance.id),
     enabled: instance.status === 'running',
   });
 
-  const { data: schema, isLoading: schemaLoading } = useQuery({
+  const { data: schema, isLoading: schemaLoading, refetch: refetchSchema } = useQuery({
     queryKey: ['postgres-schema', instance.id, selectedTable],
     queryFn: () => api.postgres.getTableSchema(instance.id, selectedTable!),
     enabled: !!selectedTable,
@@ -616,6 +730,99 @@ function DatabaseTab ({ instance }: { instance: any })
     setTableSchema(null);
   };
 
+  const handleRefreshTables = () =>
+  {
+    refetchTables();
+  };
+
+  const handleRefreshSchema = () =>
+  {
+    if (selectedTable) {
+      refetchSchema();
+    }
+  };
+
+  const handleBackup = async () =>
+  {
+    try {
+      const response = await api.postgres.createBackup(instance.id);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${instance.name}-backup-${Date.now()}.sql`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.message || 'Backup failed');
+    }
+  };
+
+  const handleRestore = async () =>
+  {
+    if (!backupFile) {
+      alert('Please select a backup file');
+      return;
+    }
+    const sql = await backupFile.text();
+    try {
+      await api.postgres.restoreBackup(instance.id, sql);
+      alert('Database restored successfully');
+      setBackupFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      refetchTables();
+    } catch (err: any) {
+      alert(err.message || 'Restore failed');
+    }
+  };
+
+  const handleExport = async () =>
+  {
+    if (!selectedTable) {
+      alert('Please select a table first');
+      return;
+    }
+    try {
+      const response = await api.postgres.exportTable(instance.id, selectedTable);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedTable}-export-${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.message || 'Export failed');
+    }
+  };
+
+  const handleImport = async () =>
+  {
+    if (!importFile || !importTableName) {
+      alert('Please select a file and enter a table name');
+      return;
+    }
+    const csv = await importFile.text();
+    try {
+      const result = await api.postgres.importTable(instance.id, importTableName, csv);
+      alert(`Imported ${result.inserted} rows successfully`);
+      setImportFile(null);
+      setImportTableName('');
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+      refetchTables();
+    } catch (err: any) {
+      alert(err.message || 'Import failed');
+    }
+  };
+
   useEffect(() =>
   {
     if (schema) {
@@ -641,8 +848,11 @@ function DatabaseTab ({ instance }: { instance: any })
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle>Tables</CardTitle>
+          <Button size="sm" variant="outline" onClick={handleRefreshTables} disabled={tablesLoading}>
+            <RefreshCw className={`h-4 w-4 ${tablesLoading ? 'animate-spin' : ''}`} />
+          </Button>
         </CardHeader>
         <CardContent>
           {tablesLoading ? (
@@ -656,6 +866,7 @@ function DatabaseTab ({ instance }: { instance: any })
                   className="w-full justify-start"
                   onClick={() => handleSelectTable(table)}
                 >
+                  <Database className="h-4 w-4 mr-2" />
                   {table}
                 </Button>
               ))}
@@ -668,8 +879,17 @@ function DatabaseTab ({ instance }: { instance: any })
 
       {selectedTable && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>Table Schema: {selectedTable}</CardTitle>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={handleRefreshSchema} disabled={schemaLoading}>
+                <RefreshCw className={`h-4 w-4 ${schemaLoading ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleExport}>
+                <FileDown className="h-4 w-4 mr-1" />
+                Export CSV
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {schemaLoading ? (
@@ -687,10 +907,10 @@ function DatabaseTab ({ instance }: { instance: any })
                 <tbody>
                   {tableSchema.map((col: any, idx: number) => (
                     <tr key={idx} className="border-b">
-                      <td className="p-2">{col.column_name}</td>
-                      <td className="p-2">{col.data_type}</td>
+                      <td className="p-2 font-mono">{col.column_name}</td>
+                      <td className="p-2 font-mono text-xs">{col.data_type}</td>
                       <td className="p-2">{col.is_nullable}</td>
-                      <td className="p-2">{col.column_default || '-'}</td>
+                      <td className="p-2 font-mono text-xs">{col.column_default || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -708,10 +928,11 @@ function DatabaseTab ({ instance }: { instance: any })
         </CardHeader>
         <CardContent className="space-y-4">
           <textarea
-            className="w-full h-32 p-3 border rounded font-mono text-sm"
+            className="w-full h-32 p-3 border rounded font-mono text-sm bg-slate-900 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="Enter SQL query..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
           />
           <Button
             onClick={handleExecuteQuery}
@@ -751,6 +972,61 @@ function DatabaseTab ({ instance }: { instance: any })
           {queryResults && queryResults.length === 0 && (
             <div className="text-muted-foreground">Query returned no results</div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Database Utilities</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <h3 className="font-semibold text-sm">Backup Database</h3>
+            <Button onClick={handleBackup} variant="outline" className="w-full">
+              <Download className="h-4 w-4 mr-2" />
+              Download Backup (.sql)
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-sm">Restore Database</h3>
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".sql"
+                onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
+                className="flex-1 text-sm"
+              />
+              <Button onClick={handleRestore} disabled={!backupFile}>
+                <Upload className="h-4 w-4 mr-2" />
+                Restore
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-sm">Import CSV to Table</h3>
+            <Input
+              placeholder="Table name"
+              value={importTableName}
+              onChange={(e) => setImportTableName(e.target.value)}
+              className="mb-2"
+            />
+            <div className="flex gap-2">
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                className="flex-1 text-sm"
+              />
+              <Button onClick={handleImport} disabled={!importFile || !importTableName}>
+                <FileUp className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

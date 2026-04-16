@@ -222,6 +222,63 @@ router.get('/instances/:id/logs', async (req: Request, res: Response) => {
   }
 });
 
+// Download logs
+router.get('/instances/:id/logs/download', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const container = req.query.container as string || 'backend';
+  const containerId = container === 'dashboard'
+    ? instance.dashboard_container_id
+    : instance.backend_container_id;
+
+  if (!containerId) {
+    res.status(404).json({ error: `No ${container} container found` });
+    return;
+  }
+
+  try {
+    const logs = await getContainerLogs(containerId, 10000);
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="${instance.name}-${container}-logs-${Date.now()}.txt"`);
+    res.send(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restart container
+router.post('/instances/:id/restart', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const container = req.query.container as string || 'backend';
+  const containerId = container === 'dashboard'
+    ? instance.dashboard_container_id
+    : instance.backend_container_id;
+
+  if (!containerId) {
+    res.status(404).json({ error: `No ${container} container found` });
+    return;
+  }
+
+  try {
+    const dockerContainer = docker.getContainer(containerId);
+    await dockerContainer.restart();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Update instance settings (extra_env)
 router.put('/instances/:id/settings', async (req: Request, res: Response) =>
 {
@@ -266,7 +323,7 @@ router.put('/instances/:id/settings', async (req: Request, res: Response) =>
   res.json(getInstance(instance.id));
 });
 
-// Get instance stats (CPU, memory, disk)
+// Get instance stats (CPU, memory, disk, network)
 router.get('/instances/:id/stats', async (req: Request, res: Response) =>
 {
   const instance = getInstance(req.params.id as string);
@@ -293,6 +350,26 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
     const memoryMb = memoryUsage / (1024 * 1024);
     const memoryLimitMb = memoryLimit / (1024 * 1024);
 
+    // Get network I/O
+    let networkRxBytes = 0;
+    let networkTxBytes = 0;
+    if (stats.networks) {
+      for (const iface of Object.values(stats.networks)) {
+        networkRxBytes += iface.rx_bytes;
+        networkTxBytes += iface.tx_bytes;
+      }
+    }
+
+    // Get disk I/O
+    let diskReadBytes = 0;
+    let diskWriteBytes = 0;
+    if (stats.blkio_stats && stats.blkio_stats.io_service_bytes_recursive) {
+      for (const entry of stats.blkio_stats.io_service_bytes_recursive) {
+        if (entry.op === 'read') diskReadBytes += entry.value;
+        if (entry.op === 'write') diskWriteBytes += entry.value;
+      }
+    }
+
     // Get volume size
     let volumeSizeBytes = 0;
     try {
@@ -300,11 +377,47 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
       const info = await volume.inspect();
       if (info.Mountpoint) {
         const fs = await import('fs');
-        const stats = fs.statSync(info.Mountpoint);
-        volumeSizeBytes = stats.size;
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        // Use du to get actual disk usage
+        try {
+          const { stdout } = await execAsync(`du -sb ${info.Mountpoint}`);
+          volumeSizeBytes = parseInt(stdout.split('\t')[0]);
+        } catch {
+          // Fallback to stat if du fails
+          const stat = fs.statSync(info.Mountpoint);
+          volumeSizeBytes = stat.size;
+        }
       }
     } catch (err) {
       // Volume size unavailable
+    }
+
+    // Get system disk usage for the volume's mount point
+    let systemDiskTotal = 0;
+    let systemDiskUsed = 0;
+    let systemDiskAvailable = 0;
+    try {
+      const volume = docker.getVolume(instance.volume_name);
+      const info = await volume.inspect();
+      if (info.Mountpoint) {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        const { stdout } = await execAsync(`df -B1 ${info.Mountpoint}`);
+        const lines = stdout.split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].split(/\s+/);
+          systemDiskTotal = parseInt(parts[1]);
+          systemDiskUsed = parseInt(parts[2]);
+          systemDiskAvailable = parseInt(parts[3]);
+        }
+      }
+    } catch (err) {
+      // System disk stats unavailable
     }
 
     res.json({
@@ -312,6 +425,13 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
       memory_mb: Math.round(memoryMb),
       memory_limit_mb: Math.round(memoryLimitMb),
       volume_size_bytes: volumeSizeBytes,
+      network_rx_bytes: networkRxBytes,
+      network_tx_bytes: networkTxBytes,
+      disk_read_bytes: diskReadBytes,
+      disk_write_bytes: diskWriteBytes,
+      system_disk_total: systemDiskTotal,
+      system_disk_used: systemDiskUsed,
+      system_disk_available: systemDiskAvailable,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

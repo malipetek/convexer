@@ -72,6 +72,14 @@ export const api = {
     request<void>(`/instances/${id}/forget`, { method: 'POST' }),
   getLogs: (id: string, container: 'backend' | 'dashboard' = 'backend', tail = 200) =>
     request<{ logs: string }>(`/instances/${id}/logs?container=${container}&tail=${tail}`),
+  downloadLogs: (id: string, container: 'backend' | 'dashboard' = 'backend') =>
+    fetch(`${BASE}/instances/${id}/logs/download?container=${container}`, {
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+    }),
+  restartContainer: (id: string, container: 'backend' | 'dashboard' = 'backend') =>
+    request<{ success: boolean }>(`/instances/${id}/restart?container=${container}`, {
+      method: 'POST',
+    }),
   updateSettings: (id: string, extra_env: Record<string, string>) =>
     request<Instance>(`/instances/${id}/settings`, {
       method: 'PUT',
