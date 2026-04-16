@@ -1,15 +1,16 @@
 import crypto from 'crypto';
-
-const sessions = new Set<string>();
+import db from './db.js';
 
 export function createSession(): string {
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.add(token);
+  const stmt = db.prepare('INSERT INTO sessions (token) VALUES (?)');
+  stmt.run(token);
   return token;
 }
 
 export function isValidSession(token: string): boolean {
-  return sessions.has(token);
+  const stmt = db.prepare('SELECT 1 FROM sessions WHERE token = ?');
+  return !!stmt.get(token);
 }
 
 export function isAuthEnabled(): boolean {

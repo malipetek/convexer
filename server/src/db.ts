@@ -117,6 +117,14 @@ db.exec(`
   )
 `);
 
+// Sessions table for authentication
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all() as Instance[];
 }
