@@ -87,6 +87,15 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
     
     // Use Dockerode (via /var/run/docker.sock) to run an alpine container and capture tar output.
     // The convexer container has no docker CLI, so execAsync('docker run...') fails.
+    await new Promise<void>((resolve, reject) =>
+    {
+      docker.pull('alpine:latest', (err: any, stream: any) =>
+      {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, (err: any) => err ? reject(err) : resolve());
+      });
+    });
+
     const container = await docker.createContainer({
       Image: 'alpine',
       Cmd: ['tar', '-czf', '-', '-C', '/data', '.'],
