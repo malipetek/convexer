@@ -1373,9 +1373,9 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       postgres_port: ports.postgresPort,
       volume_name: `convexer-${newName}-data`,
       postgres_volume_name: `convexer-postgres-${newName}`,
-      postgres_password: randomUUID().replace(/-/g, ''),
+      postgres_password: crypto.randomBytes(32).toString('hex'),
       instance_name: newName,
-      instance_secret: randomUUID().replace(/-/g, ''),
+      instance_secret: crypto.randomBytes(32).toString('hex'),
       extra_env: JSON.stringify(newExtraEnv),
     });
 
