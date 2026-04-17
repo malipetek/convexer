@@ -82,18 +82,55 @@ export async function createBackup(instance: Instance): Promise<string> {
 
 export async function restoreBackup(instance: Instance, sql: string): Promise<void> {
   const docker = new Docker();
+  const dbName = instance.instance_name.replace(/-/g, '_');
   const container = docker.getContainer(`convexer-postgres-${instance.name}`);
-  
+
+  // Wipe schema so old data doesn't persist
+  const wipeExec = await container.exec({
+    Cmd: ['psql', '-U', 'postgres', '-d', dbName, '-c', 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'],
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+  const wipeStream = await wipeExec.start({ Detach: false, Tty: false });
+  await new Promise<void>((resolve, reject) =>
+  {
+    wipeStream.on('end', resolve);
+    wipeStream.on('error', reject);
+  });
+
+  // Restore SQL dump and wait for completion
   const exec = await container.exec({
-    Cmd: ['psql', '-U', 'postgres', '-d', instance.instance_name.replace(/-/g, '_')],
+    Cmd: ['psql', '-U', 'postgres', '-d', dbName],
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
   });
-  
+
   const stream = await exec.start({ Detach: false, Tty: false, stdin: true });
-  await stream.write(Buffer.from(sql));
-  await stream.end();
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) =>
+  {
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    stream.on('end', resolve);
+    stream.on('error', reject);
+    stream.write(Buffer.from(sql));
+    stream.end();
+  });
+
+  const info = await exec.inspect();
+  if (info.ExitCode !== 0) {
+    const raw = Buffer.concat(chunks);
+    const stderrParts: Buffer[] = [];
+    let pos = 0;
+    while (pos + 8 <= raw.length) {
+      const type = raw[pos];
+      const size = raw.readUInt32BE(pos + 4);
+      if (type === 2) stderrParts.push(raw.subarray(pos + 8, pos + 8 + size));
+      pos += 8 + size;
+    }
+    const errMsg = Buffer.concat(stderrParts).toString('utf-8').slice(0, 500);
+    throw new Error(`psql restore exited with code ${info.ExitCode}: ${errMsg}`);
+  }
 }
 
 export async function exportTable(instance: Instance, tableName: string): Promise<string> {
