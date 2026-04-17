@@ -819,6 +819,14 @@ function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, 
   );
 }
 
+function labelStyle (label?: string): { bg: string; text: string; dot: string }
+{
+  if (!label || label === 'Manual') return { bg: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', text: 'Manual', dot: 'bg-blue-500' };
+  if (label === 'Scheduled') return { bg: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400', text: 'Scheduled', dot: 'bg-gray-400' };
+  if (label === 'Pre-restore snapshot') return { bg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', text: 'Snapshot', dot: 'bg-amber-500' };
+  return { bg: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300', text: label, dot: 'bg-purple-500' };
+}
+
 function BackupNowCard ({ instanceId }: { instanceId: string })
 {
   const queryClient = useQueryClient();
@@ -826,21 +834,15 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
 
   const { data: historyData } = useQuery({
     queryKey: ['backupHistory', instanceId],
-    queryFn: () => api.backup.getHistory(instanceId, 10),
+    queryFn: () => api.backup.getHistory(instanceId, 30),
     enabled: !!instanceId,
     refetchInterval: 5000,
   });
 
   const triggerMutation = useMutation({
     mutationFn: () => api.backup.triggerBackup(instanceId, backupType),
-    onSuccess: () =>
-    {
-      queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] });
-    },
-    onError: (err: any) =>
-    {
-      alert(err.message || 'Failed to trigger backup');
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] }),
+    onError: (err: any) => alert(err.message || 'Failed to trigger backup'),
   });
 
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -851,7 +853,8 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
     onSuccess: () =>
     {
       setRestoringId(null);
-      alert('Restore completed successfully');
+      queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] });
+      alert('Restored successfully. A pre-restore snapshot was saved automatically.');
     },
     onError: (err: any) =>
     {
@@ -860,98 +863,146 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
     },
   });
 
-  const history = historyData?.history || [];
+  const history: any[] = historyData?.history || [];
 
   if (!instanceId) return null;
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileDown className="h-4 w-4" />
-          Backup Now
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-end gap-3">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="manual-backup-type">Backup Type</Label>
-            <Select value={backupType} onValueChange={(v: any) => setBackupType(v)}>
-              <SelectTrigger id="manual-backup-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="database">Database Only</SelectItem>
-                <SelectItem value="volume">Volume Only</SelectItem>
-                <SelectItem value="database,volume">Database & Volume</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            onClick={() => triggerMutation.mutate()}
-            disabled={triggerMutation.isPending}
-          >
-            {triggerMutation.isPending ? (
-              <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Running...</>
-            ) : (
-              <><Archive className="h-4 w-4 mr-2" />Run Backup</>
-            )}
-          </Button>
-        </div>
+  // Group history by local date string
+  const grouped: { date: string; entries: any[] }[] = [];
+  for (const h of history) {
+    const date = new Date(h.started_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const last = grouped[grouped.length - 1];
+    if (last && last.date === date) last.entries.push(h);
+    else grouped.push({ date, entries: [h] });
+  }
 
-        {history.length > 0 && (
-          <div className="space-y-1">
-            <Label>Recent Backups</Label>
-            <div className="border rounded-md divide-y max-h-60 overflow-auto">
-              {history.map((h: any, idx: number) => (
-                <div key={h.id || idx} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {h.status === 'completed' ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                    ) : h.status === 'failed' ? (
-                      <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
-                    ) : (
-                      <CircleDot className="h-4 w-4 text-yellow-500 shrink-0 animate-pulse" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">
-                        {h.backup_type} · {new Date(h.started_at).toLocaleString()}
-                      </div>
-                      {h.error_message && (
-                        <div className="text-xs text-red-500 truncate">{h.error_message}</div>
-                      )}
-                    </div>
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Archive className="h-4 w-4" />
+            Create Backup
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="manual-backup-type">Backup Type</Label>
+              <Select value={backupType} onValueChange={(v: any) => setBackupType(v)}>
+                <SelectTrigger id="manual-backup-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="database">Database Only</SelectItem>
+                  <SelectItem value="volume">Volume Only</SelectItem>
+                  <SelectItem value="database,volume">Database &amp; Volume</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={() => triggerMutation.mutate()} disabled={triggerMutation.isPending}>
+              {triggerMutation.isPending
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Running...</>
+                : <><FileDown className="h-4 w-4 mr-2" />Back Up Now</>}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {history.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CircleDot className="h-4 w-4" />
+              Snapshot Timeline
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="space-y-6">
+              {grouped.map((group, gi) => (
+                <div key={group.date}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{group.date}</span>
+                    <div className="h-px flex-1 bg-border" />
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <span className="text-xs text-muted-foreground">{h.size_bytes ? formatBytes(h.size_bytes) : h.status}</span>
-                    {h.status === 'completed' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 px-2 text-xs"
-                        disabled={!!restoringId}
-                        onClick={() =>
-                        {
-                          if (window.confirm(`Restore this ${h.backup_type} backup from ${new Date(h.started_at).toLocaleString()}?\nThis will overwrite current data.`)) {
-                            restoreMutation.mutate(h.id);
-                          }
-                        }}
-                      >
-                        {restoringId === h.id ? (
-                          <RefreshCw className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <><Upload className="h-3 w-3 mr-1" />Restore</>
-                        )}
-                      </Button>
-                    )}
+                  <div className="relative ml-3">
+                    {/* vertical timeline line */}
+                    <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border" />
+                    <div className="space-y-3">
+                      {group.entries.map((h: any, idx: number) =>
+                      {
+                        const ls = labelStyle(h.label);
+                        const isFirst = gi === 0 && idx === 0;
+                        return (
+                          <div key={h.id || idx} className="relative flex gap-4 pl-8">
+                            {/* timeline dot */}
+                            <div className={`absolute left-0 top-[10px] w-[15px] h-[15px] rounded-full border-2 border-background ${h.status === 'running' ? 'bg-yellow-500 animate-pulse' :
+                                h.status === 'failed' ? 'bg-red-500' :
+                                  ls.dot
+                              } z-10`} />
+
+                            <div className={`flex-1 rounded-lg border p-3 transition-colors ${isFirst && h.status === 'completed' ? 'border-primary/40 bg-primary/5' : 'bg-card'}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${ls.bg}`}>{ls.text}</span>
+                                    <span className="text-xs font-medium capitalize">{h.backup_type}</span>
+                                    {isFirst && h.status === 'completed' && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/20 text-primary">Latest</span>
+                                    )}
+                                    {h.status === 'running' && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Running…</span>
+                                    )}
+                                    {h.status === 'failed' && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Failed</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(h.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    {h.size_bytes && (
+                                      <span className="text-xs text-muted-foreground">· {formatBytes(h.size_bytes)}</span>
+                                    )}
+                                  </div>
+                                  {h.error_message && (
+                                    <p className="text-xs text-red-500 mt-1 truncate">{h.error_message}</p>
+                                  )}
+                                </div>
+
+                                {h.status === 'completed' && (
+                                  <Button
+                                    size="sm"
+                                    variant={isFirst ? 'outline' : 'ghost'}
+                                    className="h-7 px-2 text-xs shrink-0"
+                                    disabled={!!restoringId}
+                                    onClick={() =>
+                                    {
+                                      if (window.confirm(`Roll back to this ${h.backup_type} snapshot?\n\nTaken: ${new Date(h.started_at).toLocaleString()}\n\nThe current state will be saved as a "Pre-restore snapshot" before rolling back.`)) {
+                                        restoreMutation.mutate(h.id);
+                                      }
+                                    }}
+                                  >
+                                    {restoringId === h.id
+                                      ? <RefreshCw className="h-3 w-3 animate-spin" />
+                                      : <><Upload className="h-3 w-3 mr-1" />Roll back</>}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }
 

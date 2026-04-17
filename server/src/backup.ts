@@ -10,13 +10,15 @@ import { getInstance, getBackupConfig, createBackupHistory, updateBackupHistory,
 const execAsync = promisify(exec);
 const docker = new Docker();
 
-export async function backupDatabase(instance: Instance, backupId: string): Promise<{ success: boolean; filePath?: string; error?: string }> {
+export async function backupDatabase (instance: Instance, backupId: string, label?: string): Promise<{ success: boolean; filePath?: string; error?: string }>
+{
   const history = createBackupHistory({
     id: backupId,
     instance_id: instance.id,
     backup_type: 'database',
     status: 'running',
     storage_type: 'local',
+    label: label ?? 'Manual',
   });
 
   try {
@@ -85,13 +87,15 @@ export async function backupDatabase(instance: Instance, backupId: string): Prom
   }
 }
 
-export async function backupVolume(instance: Instance, backupId: string): Promise<{ success: boolean; filePath?: string; error?: string }> {
+export async function backupVolume (instance: Instance, backupId: string, label?: string): Promise<{ success: boolean; filePath?: string; error?: string }>
+{
   const history = createBackupHistory({
     id: backupId,
     instance_id: instance.id,
     backup_type: 'volume',
     status: 'running',
     storage_type: 'local',
+    label: label ?? 'Manual',
   });
 
   try {
@@ -325,12 +329,12 @@ export async function performBackup(instanceId: string): Promise<void> {
     const backupId = randomUUID();
     
     if (backupType === 'database') {
-      const result = await backupDatabase(instance, backupId);
+      const result = await backupDatabase(instance, backupId, 'Scheduled');
       if (result.success && result.filePath) {
         await uploadToDestination(result.filePath, config);
       }
     } else if (backupType === 'volume') {
-      const result = await backupVolume(instance, backupId);
+      const result = await backupVolume(instance, backupId, 'Scheduled');
       if (result.success && result.filePath) {
         await uploadToDestination(result.filePath, config);
       }

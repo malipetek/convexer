@@ -1189,6 +1189,18 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       return;
     }
 
+    // Auto-snapshot current state before overwriting
+    const snapshotIds: string[] = [];
+    if (entry.backup_type === 'database') {
+      const snapshotId = uuidv4();
+      const snap = await backupDatabase(instance, snapshotId, 'Pre-restore snapshot');
+      if (snap.success) snapshotIds.push(snapshotId);
+    } else if (entry.backup_type === 'volume') {
+      const snapshotId = uuidv4();
+      const snap = await backupVolume(instance, snapshotId, 'Pre-restore snapshot');
+      if (snap.success) snapshotIds.push(snapshotId);
+    }
+
     if (entry.backup_type === 'database') {
       const sql = await fs.readFile(entry.file_path, 'utf-8');
       await restoreBackup(instance, sql);
@@ -1199,7 +1211,7 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       return;
     }
 
-    res.json({ success: true });
+    res.json({ success: true, snapshotIds });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

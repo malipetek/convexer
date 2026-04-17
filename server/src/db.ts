@@ -129,6 +129,14 @@ db.exec(`
   )
 `);
 
+// Add label column to backup_history if it doesn't exist (migration)
+try {
+  const histCols = (db.prepare("PRAGMA table_info(backup_history)").all() as any[]).map((c: any) => c.name);
+  if (!histCols.includes('label')) {
+    db.exec('ALTER TABLE backup_history ADD COLUMN label TEXT');
+  }
+} catch (e) { console.error('Migration failed: backup_history.label', e); }
+
 // Global backup settings table
 db.exec(`
   CREATE TABLE IF NOT EXISTS backup_settings (
@@ -260,6 +268,7 @@ export interface BackupHistory
   size_bytes?: number;
   file_path?: string;
   storage_type: string;
+  label?: string;
   error_message?: string;
   started_at: string;
   completed_at?: string;
@@ -348,8 +357,8 @@ export function getBackupHistoryById (id: string): BackupHistory | undefined
 export function createBackupHistory (history: Partial<BackupHistory> & { id: string; instance_id: string; backup_type: string }): BackupHistory
 {
   const stmt = db.prepare(`
-    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, error_message, completed_at)
-    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @error_message, @completed_at)
+    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, label, error_message, completed_at)
+    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @label, @error_message, @completed_at)
   `);
   stmt.run({
     id: history.id,
@@ -359,6 +368,7 @@ export function createBackupHistory (history: Partial<BackupHistory> & { id: str
     size_bytes: history.size_bytes ?? null,
     file_path: history.file_path ?? null,
     storage_type: history.storage_type ?? 'local',
+    label: history.label ?? null,
     error_message: history.error_message ?? null,
     completed_at: history.completed_at ?? null,
   });
@@ -367,7 +377,7 @@ export function createBackupHistory (history: Partial<BackupHistory> & { id: str
 
 export function updateBackupHistory (id: string, updates: Partial<BackupHistory>): BackupHistory | undefined
 {
-  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'error_message', 'completed_at'];
+  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'label', 'error_message', 'completed_at'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
 
