@@ -704,6 +704,8 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
         </CardContent>
       </Card>
 
+      <BackupNowCard instanceId={id!} />
+
       <Card className="mt-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -806,6 +808,103 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
         </CardContent>
       </Card>
     </>
+  );
+}
+
+function BackupNowCard ({ instanceId }: { instanceId: string })
+{
+  const queryClient = useQueryClient();
+  const [backupType, setBackupType] = useState<'database' | 'volume' | 'database,volume'>('database,volume');
+
+  const { data: historyData } = useQuery({
+    queryKey: ['backupHistory', instanceId],
+    queryFn: () => api.backup.getHistory(instanceId, 10),
+    enabled: !!instanceId,
+    refetchInterval: 5000,
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () => api.backup.triggerBackup(instanceId, backupType),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] });
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to trigger backup');
+    },
+  });
+
+  const history = historyData?.history || [];
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileDown className="h-4 w-4" />
+          Backup Now
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-end gap-3">
+          <div className="flex-1 space-y-2">
+            <Label htmlFor="manual-backup-type">Backup Type</Label>
+            <Select value={backupType} onValueChange={(v: any) => setBackupType(v)}>
+              <SelectTrigger id="manual-backup-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="database">Database Only</SelectItem>
+                <SelectItem value="volume">Volume Only</SelectItem>
+                <SelectItem value="database,volume">Database & Volume</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={() => triggerMutation.mutate()}
+            disabled={triggerMutation.isPending}
+          >
+            {triggerMutation.isPending ? (
+              <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Running...</>
+            ) : (
+              <><Archive className="h-4 w-4 mr-2" />Run Backup</>
+            )}
+          </Button>
+        </div>
+
+        {history.length > 0 && (
+          <div className="space-y-1">
+            <Label>Recent Backups</Label>
+            <div className="border rounded-md divide-y max-h-60 overflow-auto">
+              {history.map((h: any) => (
+                <div key={h.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {h.status === 'completed' ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                    ) : h.status === 'failed' ? (
+                      <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+                    ) : (
+                      <CircleDot className="h-4 w-4 text-yellow-500 shrink-0 animate-pulse" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">
+                        {h.backup_type} · {new Date(h.started_at).toLocaleString()}
+                      </div>
+                      {h.error_message && (
+                        <div className="text-xs text-red-500 truncate">{h.error_message}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground shrink-0 ml-3">
+                    {h.size_bytes ? formatBytes(h.size_bytes) : h.status}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
