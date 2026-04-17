@@ -552,6 +552,7 @@ export default function InstanceDetail() {
               savingBackup={savingBackup}
               setSavingBackup={setSavingBackup}
               saveBackupConfigMutation={saveBackupConfigMutation}
+              id={id!}
             />
           </TabsContent>
 
@@ -568,7 +569,7 @@ export default function InstanceDetail() {
   );
 }
 
-function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation }: { instance: any; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any })
+function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation, id }: { instance: any; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any; id: string })
 {
   const [saving, setSaving] = useState(false);
   const [extraEnv, setExtraEnv] = useState<Record<string, string>>(() => {
@@ -837,6 +838,8 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
 
   const history = historyData?.history || [];
 
+  if (!instanceId) return null;
+
   return (
     <Card className="mt-6">
       <CardHeader>
@@ -876,8 +879,8 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
           <div className="space-y-1">
             <Label>Recent Backups</Label>
             <div className="border rounded-md divide-y max-h-60 overflow-auto">
-              {history.map((h: any) => (
-                <div key={h.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              {history.map((h: any, idx: number) => (
+                <div key={h.id || idx} className="flex items-center justify-between px-3 py-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     {h.status === 'completed' ? (
                       <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
