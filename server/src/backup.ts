@@ -84,8 +84,8 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filePath = path.join(backupDir, `${instance.name}-volume-${timestamp}.tar.gz`);
     
-    // Use Dockerode (via /var/run/docker.sock) to run an alpine container and capture tar output.
-    // The convexer container has no docker CLI, so execAsync('docker run...') fails.
+    // Write tar output directly into the backup volume to avoid binary corruption
+    // from Docker log stream demuxing. Alpine writes the file; we just wait for exit.
     await new Promise<void>((resolve, reject) =>
     {
       docker.pull('alpine:latest', (err: any, stream: any) =>
@@ -95,35 +95,33 @@ export async function backupVolume(instance: Instance, backupId: string): Promis
       });
     });
 
+    // Find the named volume that owns the backup directory
+    const selfInfo = await docker.getContainer('convexer').inspect();
+    const namedMounts: any[] = (selfInfo.Mounts || []).filter((m: any) => m.Type === 'volume' && m.Name);
+    namedMounts.sort((a: any, b: any) => b.Destination.length - a.Destination.length);
+    const backupMount = namedMounts.find((m: any) => filePath.startsWith(m.Destination + '/') || filePath === m.Destination);
+    if (!backupMount) throw new Error(`Cannot find volume mount covering: ${filePath}`);
+
+    const relPath = path.relative(backupMount.Destination, filePath);
+
     const container = await docker.createContainer({
       Image: 'alpine',
-      Cmd: ['tar', '-czf', '-', '-C', '/data', '.'],
-      AttachStdout: true,
-      AttachStderr: true,
+      Cmd: ['tar', '-czf', `/backup-out/${relPath}`, '-C', '/data', '.'],
       HostConfig: {
-        Binds: [`${instance.volume_name}:/data:ro`],
+        Binds: [
+          `${instance.volume_name}:/data:ro`,
+          `${backupMount.Name}:/backup-out`,
+        ],
       },
     });
 
     try {
       await container.start();
       const { StatusCode } = await container.wait();
-      if (StatusCode !== 0) throw new Error(`tar exited with code ${StatusCode}`);
-
-      // container.logs() returns Buffer when follow=false
-      const raw = await container.logs({ stdout: true, stderr: false }) as unknown as Buffer;
-
-      // Demux Docker multiplexed log stream (8-byte header per frame)
-      const output: any[] = [];
-      let pos = 0;
-      while (pos + 8 <= raw.length) {
-        const type = raw[pos];
-        const size = raw.readUInt32BE(pos + 4);
-        if (type === 1) output.push(raw.subarray(pos + 8, pos + 8 + size));
-        pos += 8 + size;
+      if (StatusCode !== 0) {
+        const errLogs = await container.logs({ stdout: false, stderr: true }) as unknown as Buffer;
+        throw new Error(`tar backup exited with code ${StatusCode}: ${errLogs.toString().slice(0, 200)}`);
       }
-
-      await fs.writeFile(filePath, Buffer.concat(output) as any);
     } finally {
       try { await container.remove({ force: true }); } catch { }
     }
