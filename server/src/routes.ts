@@ -47,6 +47,7 @@ import
 {
   backupDatabase,
   backupVolume,
+  restoreDatabase,
   restoreVolume,
   performBackup
 } from './backup.js';
@@ -1189,25 +1190,53 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       return;
     }
 
+    if (entry.backup_type !== 'database' && entry.backup_type !== 'volume') {
+      res.status(400).json({ error: `Unknown backup type: ${entry.backup_type}` });
+      return;
+    }
+
     // Auto-snapshot current state before overwriting
     const snapshotIds: string[] = [];
     if (entry.backup_type === 'database') {
       const snapshotId = uuidv4();
       const snap = await backupDatabase(instance, snapshotId, 'Pre-restore snapshot');
       if (snap.success) snapshotIds.push(snapshotId);
+      else { res.status(500).json({ error: `Pre-restore snapshot failed: ${snap.error}` }); return; }
     } else if (entry.backup_type === 'volume') {
       const snapshotId = uuidv4();
       const snap = await backupVolume(instance, snapshotId, 'Pre-restore snapshot');
       if (snap.success) snapshotIds.push(snapshotId);
+      else { res.status(500).json({ error: `Pre-restore snapshot failed: ${snap.error}` }); return; }
     }
 
-    if (entry.backup_type === 'database') {
-      const sql = await fs.readFile(entry.file_path, 'utf-8');
-      await restoreBackup(instance, sql);
-    } else if (entry.backup_type === 'volume') {
-      await restoreVolume(instance, entry.file_path);
-    } else {
-      res.status(400).json({ error: `Unknown backup type: ${entry.backup_type}` });
+    // Stop backend + dashboard so they release DB/volume handles and stale cache
+    const docker = new Docker();
+    const toStop = [instance.dashboard_container_id, instance.backend_container_id].filter(Boolean) as string[];
+    for (const cid of toStop) {
+      try { await docker.getContainer(cid).stop({ t: 10 }); }
+      catch (e: any) { if (!e.message?.includes('not running') && e.statusCode !== 304 && e.statusCode !== 404) throw e; }
+    }
+
+    let restoreErr: Error | null = null;
+    try {
+      if (entry.backup_type === 'database') {
+        await restoreDatabase(instance, entry.file_path);
+      } else {
+        await restoreVolume(instance, entry.file_path);
+      }
+    } catch (e: any) {
+      restoreErr = e;
+    }
+
+    // Always attempt to start containers back up
+    const toStart = [instance.backend_container_id, instance.dashboard_container_id].filter(Boolean) as string[];
+    for (const cid of toStart) {
+      try { await docker.getContainer(cid).start(); }
+      catch (e: any) { if (!e.message?.includes('already started') && e.statusCode !== 304 && e.statusCode !== 404) console.error('restart failed:', e.message); }
+    }
+
+    if (restoreErr) {
+      res.status(500).json({ error: restoreErr.message, snapshotIds });
       return;
     }
 

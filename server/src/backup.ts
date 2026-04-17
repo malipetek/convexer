@@ -168,6 +168,74 @@ export async function backupVolume (instance: Instance, backupId: string, label?
   }
 }
 
+export async function restoreDatabase (instance: Instance, filePath: string): Promise<void>
+{
+  const dbName = instance.instance_name.replace(/-/g, '_');
+  const host = `convexer-postgres-${instance.name}`;
+
+  // Pull postgres image (has psql) if not present
+  await new Promise<void>((resolve, reject) =>
+  {
+    docker.pull('postgres:16-alpine', (err: any, stream: any) =>
+    {
+      if (err) return reject(err);
+      docker.modem.followProgress(stream, (err: any) => err ? reject(err) : resolve());
+    });
+  });
+
+  // Find the named volume that holds the backup file
+  const selfInfo = await docker.getContainer('convexer').inspect();
+  const namedMounts: any[] = (selfInfo.Mounts || []).filter((m: any) => m.Type === 'volume' && m.Name);
+  namedMounts.sort((a: any, b: any) => b.Destination.length - a.Destination.length);
+  const backupMount = namedMounts.find((m: any) => filePath.startsWith(m.Destination + '/') || filePath === m.Destination);
+  if (!backupMount) throw new Error(`Cannot find volume covering: ${filePath}`);
+  const relPath = path.relative(backupMount.Destination, filePath);
+
+  // Discover which network the postgres container is on (need convexer-net)
+  const pgInfo = await docker.getContainer(host).inspect();
+  const networkNames = Object.keys(pgInfo.NetworkSettings.Networks || {});
+  const network = networkNames.find(n => n !== 'bridge') || networkNames[0];
+  if (!network) throw new Error(`No network found for postgres container ${host}`);
+
+  async function runHelper (cmd: string[], binds: string[] = []): Promise<void>
+  {
+    const c = await docker.createContainer({
+      Image: 'postgres:16-alpine',
+      Cmd: cmd,
+      Env: [`PGPASSWORD=${instance.postgres_password}`],
+      HostConfig: {
+        NetworkMode: network,
+        Binds: binds,
+        AutoRemove: false,
+      },
+    });
+    try {
+      await c.start();
+      const { StatusCode } = await c.wait();
+      if (StatusCode !== 0) {
+        const logs = await c.logs({ stdout: true, stderr: true, follow: false }) as unknown as Buffer;
+        throw new Error(`psql helper exited with ${StatusCode}: ${logs.toString().slice(-600)}`);
+      }
+    } finally {
+      try { await c.remove({ force: true }); } catch { }
+    }
+  }
+
+  // Wipe public schema
+  await runHelper([
+    'psql', '-h', host, '-U', 'postgres', '-d', dbName,
+    '-v', 'ON_ERROR_STOP=1',
+    '-c', 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres;',
+  ]);
+
+  // Restore from file
+  await runHelper([
+    'psql', '-h', host, '-U', 'postgres', '-d', dbName,
+    '-v', 'ON_ERROR_STOP=1',
+    '-f', `/backup/${relPath}`,
+  ], [`${backupMount.Name}:/backup:ro`]);
+}
+
 export async function restoreVolume (instance: Instance, filePath: string): Promise<void>
 {
   await new Promise<void>((resolve, reject) =>
@@ -190,9 +258,10 @@ export async function restoreVolume (instance: Instance, filePath: string): Prom
 
   const relPath = path.relative(match.Destination, filePath);
 
+  // Wipe existing volume contents, then extract backup
   const container = await docker.createContainer({
     Image: 'alpine',
-    Cmd: ['tar', '-xzf', `/backup-src/${relPath}`, '-C', '/data'],
+    Cmd: ['sh', '-c', `rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null; tar -xzf /backup-src/${relPath} -C /data`],
     HostConfig: {
       Binds: [
         `${instance.volume_name}:/data`,
@@ -204,7 +273,10 @@ export async function restoreVolume (instance: Instance, filePath: string): Prom
   try {
     await container.start();
     const { StatusCode } = await container.wait();
-    if (StatusCode !== 0) throw new Error(`Volume restore exited with code ${StatusCode}`);
+    if (StatusCode !== 0) {
+      const logs = await container.logs({ stdout: true, stderr: true, follow: false }) as unknown as Buffer;
+      throw new Error(`Volume restore exited with ${StatusCode}: ${logs.toString().slice(-400)}`);
+    }
   } finally {
     try { await container.remove({ force: true }); } catch { }
   }
