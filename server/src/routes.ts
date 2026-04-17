@@ -18,6 +18,7 @@ import
   updateBackupConfig,
   deleteBackupConfig,
   getBackupHistory,
+  getBackupHistoryById,
   getBackupSettings,
   updateBackupSettings
 } from './db.js';
@@ -46,6 +47,7 @@ import
 {
   backupDatabase,
   backupVolume,
+  restoreVolume,
   performBackup
 } from './backup.js';
 import
@@ -1143,6 +1145,58 @@ router.post('/instances/:id/backup/trigger', async (req: Request, res: Response)
         res.status(500).json({ error: result.error });
         return;
       }
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/backup/restore', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+
+    const { backupId } = req.body;
+    if (!backupId) {
+      res.status(400).json({ error: 'backupId is required' });
+      return;
+    }
+
+    const entry = getBackupHistoryById(backupId);
+    if (!entry) {
+      res.status(404).json({ error: 'Backup not found' });
+      return;
+    }
+    if (entry.status !== 'completed') {
+      res.status(400).json({ error: 'Backup is not in completed state' });
+      return;
+    }
+    if (!entry.file_path) {
+      res.status(400).json({ error: 'Backup has no file path' });
+      return;
+    }
+
+    const fs = await import('fs/promises');
+    try { await fs.access(entry.file_path); } catch {
+      res.status(404).json({ error: 'Backup file not found on disk' });
+      return;
+    }
+
+    if (entry.backup_type === 'database') {
+      const sql = await fs.readFile(entry.file_path, 'utf-8');
+      await restoreBackup(instance, sql);
+    } else if (entry.backup_type === 'volume') {
+      await restoreVolume(instance, entry.file_path);
+    } else {
+      res.status(400).json({ error: `Unknown backup type: ${entry.backup_type}` });
+      return;
     }
 
     res.json({ success: true });

@@ -193,6 +193,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ type }),
     }),
+    restoreFromHistory: (id: string, backupId: string) => request<{ success: boolean }>(`/instances/${id}/backup/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ backupId }),
+    }),
     getSettings: () => request<{ settings: any }>('/backup/settings'),
     updateSettings: (settings: any) => request<{ settings: any }>('/backup/settings', {
       method: 'POST',

@@ -340,6 +340,11 @@ export function getBackupHistory (instanceId: string, limit = 50): BackupHistory
   return db.prepare('SELECT * FROM backup_history WHERE instance_id = ? ORDER BY started_at DESC LIMIT ?').all(instanceId, limit) as BackupHistory[];
 }
 
+export function getBackupHistoryById (id: string): BackupHistory | undefined
+{
+  return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
+}
+
 export function createBackupHistory (history: Partial<BackupHistory> & { id: string; instance_id: string; backup_type: string }): BackupHistory
 {
   const stmt = db.prepare(`

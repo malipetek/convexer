@@ -245,8 +245,8 @@ export default function InstanceDetail() {
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="database">Database</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="backups">Backups</TabsTrigger>
             <TabsTrigger value="containers">Containers</TabsTrigger>
-            <TabsTrigger value="logs">Logs</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -545,23 +545,22 @@ export default function InstanceDetail() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <InstanceSettings
-              instance={instance}
+            <InstanceSettings instance={instance} />
+          </TabsContent>
+
+          <TabsContent value="backups">
+            <BackupsTab
+              instanceId={id!}
               backupConfig={backupConfig}
               setBackupConfig={setBackupConfig}
               savingBackup={savingBackup}
               setSavingBackup={setSavingBackup}
               saveBackupConfigMutation={saveBackupConfigMutation}
-              id={id!}
             />
           </TabsContent>
 
           <TabsContent value="containers">
             <ContainersTab instanceId={instance.id} />
-          </TabsContent>
-
-          <TabsContent value="logs">
-            <InstanceLogs instanceId={instance.id} />
           </TabsContent>
         </Tabs>
       </div>
@@ -569,7 +568,7 @@ export default function InstanceDetail() {
   );
 }
 
-function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation, id }: { instance: any; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any; id: string })
+function InstanceSettings ({ instance }: { instance: any })
 {
   const [saving, setSaving] = useState(false);
   const [extraEnv, setExtraEnv] = useState<Record<string, string>>(() => {
@@ -705,7 +704,15 @@ function InstanceSettings ({ instance, backupConfig, setBackupConfig, savingBack
         </CardContent>
       </Card>
 
-      <BackupNowCard instanceId={id!} />
+    </>
+  );
+}
+
+function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation }: { instanceId: string; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any })
+{
+  return (
+    <>
+      <BackupNowCard instanceId={instanceId} />
 
       <Card className="mt-6">
         <CardHeader>
@@ -836,12 +843,29 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
     },
   });
 
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  const restoreMutation = useMutation({
+    mutationFn: (backupId: string) => api.backup.restoreFromHistory(instanceId, backupId),
+    onMutate: (backupId) => setRestoringId(backupId),
+    onSuccess: () =>
+    {
+      setRestoringId(null);
+      alert('Restore completed successfully');
+    },
+    onError: (err: any) =>
+    {
+      setRestoringId(null);
+      alert(err.message || 'Restore failed');
+    },
+  });
+
   const history = historyData?.history || [];
 
   if (!instanceId) return null;
 
   return (
-    <Card className="mt-6">
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileDown className="h-4 w-4" />
@@ -898,8 +922,28 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                       )}
                     </div>
                   </div>
-                  <div className="text-xs text-muted-foreground shrink-0 ml-3">
-                    {h.size_bytes ? formatBytes(h.size_bytes) : h.status}
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <span className="text-xs text-muted-foreground">{h.size_bytes ? formatBytes(h.size_bytes) : h.status}</span>
+                    {h.status === 'completed' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        disabled={!!restoringId}
+                        onClick={() =>
+                        {
+                          if (window.confirm(`Restore this ${h.backup_type} backup from ${new Date(h.started_at).toLocaleString()}?\nThis will overwrite current data.`)) {
+                            restoreMutation.mutate(h.id);
+                          }
+                        }}
+                      >
+                        {restoringId === h.id ? (
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <><Upload className="h-3 w-3 mr-1" />Restore</>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
