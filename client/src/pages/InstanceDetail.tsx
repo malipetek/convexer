@@ -10,7 +10,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
-import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive } from 'lucide-react';
+import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive, Box, CircleDot, AlertCircle, CheckCircle2 } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import InstanceMetrics, { type MetricSample } from '../components/InstanceMetrics';
@@ -245,6 +245,7 @@ export default function InstanceDetail() {
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="database">Database</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="containers">Containers</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>
           </TabsList>
 
@@ -552,6 +553,10 @@ export default function InstanceDetail() {
               setSavingBackup={setSavingBackup}
               saveBackupConfigMutation={saveBackupConfigMutation}
             />
+          </TabsContent>
+
+          <TabsContent value="containers">
+            <ContainersTab instanceId={instance.id} />
           </TabsContent>
 
           <TabsContent value="logs">
@@ -1017,6 +1022,120 @@ function DestinationSection ({ backupConfig, setBackupConfig }: { backupConfig: 
           <div className="font-semibold">{testResult.success ? 'Connection OK' : 'Connection Failed'}</div>
           <pre className="whitespace-pre-wrap mt-1">{testResult.message}</pre>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ContainersTab ({ instanceId }: { instanceId: string })
+{
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const logRef = useRef<HTMLPreElement>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['containers', instanceId],
+    queryFn: () => api.getContainers(instanceId),
+    refetchInterval: 10_000,
+  });
+
+  const { data: logData, isFetching: logFetching } = useQuery({
+    queryKey: ['container-logs', instanceId, selectedRole],
+    queryFn: () => api.getLogs(instanceId, selectedRole as any, 300),
+    enabled: !!selectedRole,
+    refetchInterval: 5_000,
+  });
+
+  useEffect(() =>
+  {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logData]);
+
+  const statusColor: Record<string, string> = {
+    running: 'text-green-500',
+    exited: 'text-muted-foreground',
+    restarting: 'text-yellow-500',
+    'not found': 'text-destructive',
+  };
+
+  const roleLabel: Record<string, string> = {
+    backend: 'Backend',
+    dashboard: 'Dashboard',
+    postgres: 'Postgres',
+  };
+
+  const containers = data?.containers ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Containers</h3>
+        <Button size="sm" variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />
+          Refresh
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading containers…</p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-3">
+          {containers.map((c) =>
+          {
+            const isSelected = selectedRole === c.role;
+            const Icon = c.role === 'postgres' ? Database : c.role === 'dashboard' ? Activity : Box;
+            return (
+              <Card
+                key={c.role}
+                className={`cursor-pointer transition-colors ${isSelected ? 'border-primary' : 'hover:border-primary/50'}`}
+                onClick={() => setSelectedRole(isSelected ? null : c.role)}
+              >
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium text-sm">{roleLabel[c.role] ?? c.role}</span>
+                    </div>
+                    {c.status === 'running' ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    ) : c.status === 'not found' ? (
+                      <AlertCircle className="h-4 w-4 text-destructive" />
+                    ) : (
+                      <CircleDot className={`h-4 w-4 ${statusColor[c.status] ?? 'text-muted-foreground'}`} />
+                    )}
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div className="font-mono truncate">{c.name}</div>
+                    <div className={`font-medium capitalize ${statusColor[c.status] ?? ''}`}>{c.status}</div>
+                    {c.image && <div className="truncate">{c.image.split('/').pop()}</div>}
+                    {c.restartCount > 0 && (
+                      <div className="text-yellow-500">{c.restartCount} restart{c.restartCount !== 1 ? 's' : ''}</div>
+                    )}
+                    {c.ports.length > 0 && (
+                      <div className="font-mono">:{c.ports.map(p => p.hostPort).join(', :')}</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedRole && (
+        <Card>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm">{roleLabel[selectedRole] ?? selectedRole} Logs</CardTitle>
+            <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${logFetching ? 'animate-spin' : ''}`} />
+          </CardHeader>
+          <CardContent className="p-0">
+            <pre
+              ref={logRef}
+              className="text-xs bg-muted p-4 rounded-b overflow-auto max-h-80 font-mono whitespace-pre-wrap"
+            >
+              {logData?.logs || 'No logs available'}
+            </pre>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

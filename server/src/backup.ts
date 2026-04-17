@@ -159,14 +159,16 @@ export async function restoreVolume (instance: Instance, filePath: string): Prom
     });
   });
 
-  // Discover the data volume by inspecting the convexer container's mounts
+  // Discover the most-specific named volume mount that contains the backup file
   const selfContainer = docker.getContainer('convexer');
   const selfInfo = await selfContainer.inspect();
-  const dataDir = process.env.DATA_DIR || '/app/server/data';
-  const dataMount = (selfInfo.Mounts || []).find((m: any) => m.Destination === dataDir);
-  if (!dataMount?.Name) throw new Error('Cannot find data volume mount in convexer container');
+  const namedMounts: any[] = (selfInfo.Mounts || []).filter((m: any) => m.Type === 'volume' && m.Name);
+  // Sort longest Destination first so we pick the most-specific mount
+  namedMounts.sort((a: any, b: any) => b.Destination.length - a.Destination.length);
+  const match = namedMounts.find((m: any) => filePath.startsWith(m.Destination + '/') || filePath === m.Destination);
+  if (!match) throw new Error(`Cannot find a named volume mount covering backup path: ${filePath}`);
 
-  const relPath = path.relative(dataDir, filePath);
+  const relPath = path.relative(match.Destination, filePath);
 
   const container = await docker.createContainer({
     Image: 'alpine',
@@ -174,7 +176,7 @@ export async function restoreVolume (instance: Instance, filePath: string): Prom
     HostConfig: {
       Binds: [
         `${instance.volume_name}:/data`,
-        `${dataMount.Name}:/backup-src:ro`,
+        `${match.Name}:/backup-src:ro`,
       ],
     },
   });

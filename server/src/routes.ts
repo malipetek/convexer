@@ -276,7 +276,9 @@ router.get('/instances/:id/logs', async (req: Request, res: Response) => {
   const tail = parseInt(req.query.tail as string) || 200;
   const containerId = container === 'dashboard'
     ? instance.dashboard_container_id
-    : instance.backend_container_id;
+    : container === 'postgres'
+      ? instance.postgres_container_id
+      : instance.backend_container_id;
 
   if (!containerId) {
     res.status(404).json({ error: `No ${container} container found` });
@@ -303,7 +305,9 @@ router.get('/instances/:id/logs/download', async (req: Request, res: Response) =
   const container = req.query.container as string || 'backend';
   const containerId = container === 'dashboard'
     ? instance.dashboard_container_id
-    : instance.backend_container_id;
+    : container === 'postgres'
+      ? instance.postgres_container_id
+      : instance.backend_container_id;
 
   if (!containerId) {
     res.status(404).json({ error: `No ${container} container found` });
@@ -1257,6 +1261,51 @@ router.post('/backup/test-destination', async (req: Request, res: Response) =>
   }
 });
 
+// Container info for an instance
+router.get('/instances/:id/containers', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const instance = getInstance(id);
+    if (!instance) { res.status(404).json({ error: 'Instance not found' }); return; }
+
+    const roles = [
+      { role: 'backend', name: `convexer-backend-${instance.name}`, id: instance.backend_container_id },
+      { role: 'dashboard', name: `convexer-dashboard-${instance.name}`, id: instance.dashboard_container_id },
+      { role: 'postgres', name: `convexer-postgres-${instance.name}`, id: instance.postgres_container_id },
+    ];
+
+    const containers = await Promise.all(roles.map(async ({ role, name, id: cid }) =>
+    {
+      try {
+        const c = docker.getContainer(cid || name);
+        const info = await c.inspect();
+        const portBindings = info.HostConfig?.PortBindings || {};
+        const ports = Object.entries(portBindings).map(([containerPort, bindings]: [string, any]) => ({
+          containerPort,
+          hostPort: bindings?.[0]?.HostPort,
+        }));
+        return {
+          role,
+          name: info.Name.replace(/^\//, ''),
+          image: info.Config.Image,
+          status: info.State.Status,
+          running: info.State.Running,
+          startedAt: info.State.StartedAt,
+          restartCount: info.RestartCount,
+          ports,
+        };
+      } catch {
+        return { role, name, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
+      }
+    }));
+
+    res.json({ containers });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Instance duplication endpoint
 router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
 {
@@ -1302,6 +1351,16 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
     // Allocate ports for new instance
     const ports = allocatePorts();
 
+    // Build new extra_env: copy source env but regenerate subdomain keys
+    const sourceEnv = sourceInstance.extra_env ? JSON.parse(sourceInstance.extra_env) : {};
+    const domain = process.env.DOMAIN || '';
+    const newExtraEnv = {
+      ...sourceEnv,
+      BACKEND_DOMAIN: domain ? `${newName}.${domain}` : newName,
+      SITE_DOMAIN: domain ? `${newName}-site.${domain}` : `${newName}-site`,
+      DASHBOARD_DOMAIN: domain ? `${newName}-dash.${domain}` : `${newName}-dash`,
+    };
+
     // Create new instance
     const { admin_key: _, instance_secret: __, ...rest } = sourceInstance;
     const newInstance = createInstance({
@@ -1317,7 +1376,7 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       postgres_password: randomUUID().replace(/-/g, ''),
       instance_name: newName,
       instance_secret: randomUUID().replace(/-/g, ''),
-      extra_env: sourceInstance.extra_env,
+      extra_env: JSON.stringify(newExtraEnv),
     });
 
     // Create and start new instance; restore DB + volume after postgres is ready but before backend starts
@@ -1332,9 +1391,6 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
         await restoreVolume(newInstance, volResult.filePath);
       }
     });
-
-    // Update instance status
-    updateInstance(newInstance.id, { status: 'running' });
 
     res.json({ instance: getInstance(newInstance.id) });
   } catch (err: any) {
