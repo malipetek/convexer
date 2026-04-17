@@ -29,15 +29,33 @@ export async function backupDatabase(instance: Instance, backupId: string): Prom
     });
     
     const stream = await exec.start({ Detach: false, Tty: false });
-    let sql = '';
-    
+    const chunks: any[] = [];
+
     await new Promise<void>((resolve, reject) => {
-      stream.on('data', (chunk: Uint8Array) => {
-        sql += Buffer.from(chunk).toString('utf-8');
-      });
+      stream.on('data', (chunk: any) => { chunks.push(chunk); });
       stream.on('end', resolve);
       stream.on('error', reject);
     });
+
+    // Demux Docker multiplexed exec stream: [type:1][pad:3][size:4 BE][payload:size]
+    const raw: any = Buffer.concat(chunks);
+    const stdoutParts: any[] = [];
+    const stderrParts: any[] = [];
+    let pos = 0;
+    while (pos + 8 <= raw.length) {
+      const type = raw[pos];
+      const size = raw.readUInt32BE(pos + 4);
+      const payload = raw.subarray(pos + 8, pos + 8 + size);
+      if (type === 1) stdoutParts.push(payload);
+      else if (type === 2) stderrParts.push(payload);
+      pos += 8 + size;
+    }
+
+    const sql: string = Buffer.concat(stdoutParts).toString('utf-8');
+    if (!sql || sql.length < 50) {
+      const errOut = Buffer.concat(stderrParts).toString('utf-8');
+      throw new Error(`pg_dump produced no output${errOut ? `: ${errOut}` : ''}`);
+    }
     
     // Create backup directory
     const backupDir = path.join(process.env.DATA_DIR || process.cwd(), 'backups', instance.id);
