@@ -100,12 +100,15 @@ export default function InstanceMetrics ({ samples, isRunning }: Props)
       const netTx = Math.max(cur.netTx - prev.netTx, 0) / dtSec / 1024;
       const diskR = Math.max(cur.diskR - prev.diskR, 0) / dtSec / 1024;
       const diskW = Math.max(cur.diskW - prev.diskW, 0) / dtSec / 1024;
+      const cpuVal = cur.cpu ?? 0;
+      const memMbVal = cur.memMb ?? 0;
+      const memLimitVal = cur.memLimitMb ?? 0;
       out.push({
         t: cur.t,
         label: fmtTime(cur.t),
-        cpu: +cur.cpu.toFixed(2),
-        memMb: +cur.memMb.toFixed(1),
-        memPct: cur.memLimitMb > 0 ? +((cur.memMb / cur.memLimitMb) * 100).toFixed(1) : 0,
+        cpu: +cpuVal.toFixed(2),
+        memMb: +memMbVal.toFixed(1),
+        memPct: memLimitVal > 0 ? +((memMbVal / memLimitVal) * 100).toFixed(1) : 0,
         netRxKBs: +netRx.toFixed(2),
         netTxKBs: +netTx.toFixed(2),
         diskRKBs: +diskR.toFixed(2),

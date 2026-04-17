@@ -35,11 +35,11 @@ export default function MetricsBadge({ instanceId }: MetricsBadgeProps) {
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <div className="flex items-center gap-1">
         <Cpu className="h-3 w-3" />
-        <span>{stats.cpu_percent.toFixed(1)}%</span>
+        <span>{(stats.cpu_percent ?? 0).toFixed(1)}%</span>
       </div>
       <div className="flex items-center gap-1">
         <MemoryStick className="h-3 w-3" />
-        <span>{stats.memory_mb.toFixed(0)} MB</span>
+        <span>{(stats.memory_mb ?? 0).toFixed(0)} MB</span>
       </div>
       <div className="flex items-center gap-1">
         <HardDrive className="h-3 w-3" />

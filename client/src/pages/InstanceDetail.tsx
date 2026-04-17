@@ -24,9 +24,9 @@ const SCHEDULE_PRESETS = [
   { label: 'Monthly on the 1st at 2 AM', cron: '0 2 1 * *' },
 ];
 
-function formatBytes (bytes: number): string
+function formatBytes (bytes: number | null | undefined): string
 {
-  if (bytes === 0) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -446,7 +446,7 @@ export default function InstanceDetail() {
                           color="#22c55e"
                         />
                         <div className="mt-2 text-sm font-semibold">
-                          {stats?.cpu_percent.toFixed(1)}%
+                          {(stats?.cpu_percent ?? 0).toFixed(1)}%
                         </div>
                       </div>
                       <div className="text-center">
@@ -457,10 +457,10 @@ export default function InstanceDetail() {
                           color="#3b82f6"
                         />
                         <div className="mt-2 text-sm font-semibold">
-                          {stats?.memory_mb.toFixed(0)} MB / {stats?.memory_limit_mb?.toFixed(0) || 4096} MB
+                          {(stats?.memory_mb ?? 0).toFixed(0)} MB / {(stats?.memory_limit_mb ?? 4096).toFixed(0)} MB
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {((stats?.memory_mb || 0) / (stats?.memory_limit_mb || 4096) * 100).toFixed(1)}%
+                          {(((stats?.memory_mb ?? 0) / (stats?.memory_limit_mb ?? 4096)) * 100).toFixed(1)}%
                         </div>
                       </div>
                       <div className="text-center">
@@ -471,7 +471,7 @@ export default function InstanceDetail() {
                           color="#f59e0b"
                         />
                         <div className="mt-2 text-sm font-semibold">
-                          {(stats?.volume_size_bytes ? stats.volume_size_bytes / (1024 * 1024 * 1024) : 0).toFixed(2)} GB
+                          {((stats?.volume_size_bytes ?? 0) / (1024 * 1024 * 1024)).toFixed(2)} GB
                         </div>
                       </div>
                     </div>
