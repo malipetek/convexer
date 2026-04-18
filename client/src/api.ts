@@ -193,9 +193,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ type }),
     }),
-    restoreFromHistory: (id: string, backupId: string) => request<{ success: boolean }>(`/instances/${id}/backup/restore`, {
+    restoreFromHistory: (id: string, backupId: string) => request<{ success: boolean; snapshotIds?: string[] }>(`/instances/${id}/backup/restore`, {
       method: 'POST',
       body: JSON.stringify({ backupId }),
+    }),
+    getBackupDetails: (backupId: string) => request<{ backup: any; syncStatus: any[]; preRestoreBackup?: any }>(`/backups/${backupId}/details`),
+    deleteBackupLocalFile: (backupId: string) => request<{ success: boolean }>(`/backups/${backupId}/local`, {
+      method: 'DELETE',
     }),
     getSettings: () => request<{ settings: any }>('/backup/settings'),
     updateSettings: (settings: any) => request<{ settings: any }>('/backup/settings', {

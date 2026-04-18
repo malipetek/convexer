@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -831,6 +832,7 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
 {
   const queryClient = useQueryClient();
   const [backupType, setBackupType] = useState<'database' | 'volume' | 'database,volume'>('database,volume');
+  const [detailBackupId, setDetailBackupId] = useState<string | null>(null);
 
   const { data: historyData } = useQuery({
     queryKey: ['backupHistory', instanceId],
@@ -942,7 +944,7 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                                   ls.dot
                               } z-10`} />
 
-                            <div className={`flex-1 rounded-lg border p-3 transition-colors ${isFirst && h.status === 'completed' ? 'border-primary/40 bg-primary/5' : 'bg-card'}`}>
+                            <div className={`flex-1 rounded-lg border p-3 transition-colors cursor-pointer hover:border-primary/50 ${isFirst && h.status === 'completed' ? 'border-primary/40 bg-primary/5' : 'bg-card'}`} onClick={() => setDetailBackupId(h.id)}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -950,6 +952,9 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                                     <span className="text-xs font-medium capitalize">{h.backup_type}</span>
                                     {isFirst && h.status === 'completed' && (
                                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/20 text-primary">Latest</span>
+                                    )}
+                                    {h.restored_at && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Last restored</span>
                                     )}
                                     {h.status === 'running' && (
                                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Running…</span>
@@ -1002,7 +1007,145 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
           </CardContent>
         </Card>
       )}
+
+      {detailBackupId && (
+        <BackupDetailDialog
+          backupId={detailBackupId}
+          open={!!detailBackupId}
+          onClose={() => setDetailBackupId(null)}
+        />
+      )}
     </>
+  );
+}
+
+function BackupDetailDialog ({ backupId, open, onClose }: { backupId: string; open: boolean; onClose: () => void })
+{
+  const queryClient = useQueryClient();
+  const { data: details, isLoading } = useQuery({
+    queryKey: ['backupDetails', backupId],
+    queryFn: () => api.backup.getBackupDetails(backupId),
+    enabled: open && !!backupId,
+  });
+
+  const deleteLocalMutation = useMutation({
+    mutationFn: () => api.backup.deleteBackupLocalFile(backupId),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['backupDetails', backupId] });
+      queryClient.invalidateQueries({ queryKey: ['backupHistory'] });
+    },
+    onError: (err: any) => alert(err.message || 'Failed to delete local file'),
+  });
+
+  const backup = details?.backup;
+  const syncStatus = details?.syncStatus || [];
+  const preRestoreBackup = details?.preRestoreBackup;
+
+  if (!backup) return null;
+
+  const syncStatusBadge = (status: string) =>
+  {
+    if (status === 'completed') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Synced</Badge>;
+    if (status === 'failed') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Failed</Badge>;
+    if (status === 'pending') return <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">Pending</Badge>;
+    return <Badge>{status}</Badge>;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Archive className="h-5 w-5" />
+            Backup Details
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="py-8 text-center text-muted-foreground">Loading...</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">Type</div>
+                <div className="font-medium capitalize">{backup.backup_type}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Status</div>
+                <div className="font-medium capitalize">{backup.status}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Size</div>
+                <div className="font-medium">{backup.size_bytes ? formatBytes(backup.size_bytes) : 'N/A'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Created</div>
+                <div className="font-medium">{new Date(backup.started_at).toLocaleString()}</div>
+              </div>
+              {backup.restored_at && (
+                <div>
+                  <div className="text-muted-foreground">Last Restored</div>
+                  <div className="font-medium">{new Date(backup.restored_at).toLocaleString()}</div>
+                </div>
+              )}
+              {backup.file_path ? (
+                <div>
+                  <div className="text-muted-foreground">Local File</div>
+                  <div className="font-medium text-xs truncate">Available</div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-muted-foreground">Local File</div>
+                  <div className="font-medium text-muted-foreground">Offloaded</div>
+                </div>
+              )}
+            </div>
+
+            {syncStatus.length > 0 && (
+              <div>
+                <div className="text-sm font-medium mb-2">Sync Status</div>
+                <div className="space-y-1">
+                  {syncStatus.map((s: any) => (
+                    <div key={s.id} className="flex items-center justify-between text-sm p-2 bg-muted rounded">
+                      <span className="capitalize">{s.provider}</span>
+                      {syncStatusBadge(s.status)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preRestoreBackup && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
+                <div className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">Pre-restore snapshot</div>
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  Created {new Date(preRestoreBackup.started_at).toLocaleString()} before this backup was restored.
+                </div>
+              </div>
+            )}
+
+            {backup.file_path && (
+              <DialogFooter>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() =>
+                  {
+                    if (window.confirm('Delete local backup file? Metadata will be preserved but the file will be removed to free disk space.')) {
+                      deleteLocalMutation.mutate();
+                    }
+                  }}
+                  disabled={deleteLocalMutation.isPending}
+                >
+                  {deleteLocalMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                  Delete Local Copy
+                </Button>
+              </DialogFooter>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

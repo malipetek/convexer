@@ -135,7 +135,26 @@ try {
   if (!histCols.includes('label')) {
     db.exec('ALTER TABLE backup_history ADD COLUMN label TEXT');
   }
-} catch (e) { console.error('Migration failed: backup_history.label', e); }
+  if (!histCols.includes('restored_at')) {
+    db.exec('ALTER TABLE backup_history ADD COLUMN restored_at TEXT');
+  }
+  if (!histCols.includes('pre_restore_snapshot_id')) {
+    db.exec('ALTER TABLE backup_history ADD COLUMN pre_restore_snapshot_id TEXT');
+  }
+} catch (e) { console.error('Migration failed: backup_history columns', e); }
+
+// Backup sync status table (tracks upload status per provider per backup)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_sync_status (
+    id TEXT PRIMARY KEY,
+    backup_history_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    synced_at TEXT,
+    FOREIGN KEY (backup_history_id) REFERENCES backup_history(id) ON DELETE CASCADE
+  )
+`);
 
 // Global backup settings table
 db.exec(`
@@ -259,6 +278,16 @@ export interface BackupConfig
   updated_at: string;
 }
 
+export interface BackupSyncStatus
+{
+  id: string;
+  backup_history_id: string;
+  provider: string;
+  status: string;
+  error_message?: string;
+  synced_at?: string;
+}
+
 export interface BackupHistory
 {
   id: string;
@@ -269,6 +298,8 @@ export interface BackupHistory
   file_path?: string;
   storage_type: string;
   label?: string;
+  restored_at?: string;
+  pre_restore_snapshot_id?: string;
   error_message?: string;
   started_at: string;
   completed_at?: string;
@@ -357,8 +388,8 @@ export function getBackupHistoryById (id: string): BackupHistory | undefined
 export function createBackupHistory (history: Partial<BackupHistory> & { id: string; instance_id: string; backup_type: string }): BackupHistory
 {
   const stmt = db.prepare(`
-    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, label, error_message, completed_at)
-    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @label, @error_message, @completed_at)
+    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, label, restored_at, pre_restore_snapshot_id, error_message, completed_at)
+    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @label, @restored_at, @pre_restore_snapshot_id, @error_message, @completed_at)
   `);
   stmt.run({
     id: history.id,
@@ -369,6 +400,8 @@ export function createBackupHistory (history: Partial<BackupHistory> & { id: str
     file_path: history.file_path ?? null,
     storage_type: history.storage_type ?? 'local',
     label: history.label ?? null,
+    restored_at: history.restored_at ?? null,
+    pre_restore_snapshot_id: history.pre_restore_snapshot_id ?? null,
     error_message: history.error_message ?? null,
     completed_at: history.completed_at ?? null,
   });
@@ -377,7 +410,7 @@ export function createBackupHistory (history: Partial<BackupHistory> & { id: str
 
 export function updateBackupHistory (id: string, updates: Partial<BackupHistory>): BackupHistory | undefined
 {
-  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'label', 'error_message', 'completed_at'];
+  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'label', 'restored_at', 'pre_restore_snapshot_id', 'error_message', 'completed_at'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
 
@@ -395,6 +428,41 @@ export function deleteOldBackups (instanceId: string, retentionDays: number): nu
   `);
   const result = stmt.run(instanceId, retentionDays);
   return result.changes;
+}
+
+// Sync status functions
+export function getBackupSyncStatus (backupHistoryId: string): BackupSyncStatus[]
+{
+  return db.prepare('SELECT * FROM backup_sync_status WHERE backup_history_id = ?').all(backupHistoryId) as BackupSyncStatus[];
+}
+
+export function createBackupSyncStatus (status: Partial<BackupSyncStatus> & { id: string; backup_history_id: string; provider: string }): BackupSyncStatus
+{
+  const stmt = db.prepare(`
+    INSERT INTO backup_sync_status (id, backup_history_id, provider, status, error_message, synced_at)
+    VALUES (@id, @backup_history_id, @provider, @status, @error_message, @synced_at)
+  `);
+  stmt.run({
+    id: status.id,
+    backup_history_id: status.backup_history_id,
+    provider: status.provider,
+    status: status.status ?? 'pending',
+    error_message: status.error_message ?? null,
+    synced_at: status.synced_at ?? null,
+  });
+  return db.prepare('SELECT * FROM backup_sync_status WHERE id = ?').get(status.id) as BackupSyncStatus;
+}
+
+export function updateBackupSyncStatus (id: string, updates: Partial<BackupSyncStatus>): BackupSyncStatus | undefined
+{
+  const allowed = ['status', 'error_message', 'synced_at'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return db.prepare('SELECT * FROM backup_sync_status WHERE id = ?').get(id) as BackupSyncStatus | undefined;
+
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  const stmt = db.prepare(`UPDATE backup_sync_status SET ${sets} WHERE id = @id`);
+  stmt.run({ id, ...updates });
+  return db.prepare('SELECT * FROM backup_sync_status WHERE id = ?').get(id) as BackupSyncStatus | undefined;
 }
 
 export function getBackupSettings (): BackupSettings | undefined

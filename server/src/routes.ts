@@ -20,7 +20,10 @@ import
   getBackupHistory,
   getBackupHistoryById,
   getBackupSettings,
-  updateBackupSettings
+  updateBackupSettings,
+  updateBackupHistory,
+  getBackupSyncStatus,
+  BackupHistory
 } from './db.js';
 import
 {
@@ -1240,8 +1243,72 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       return;
     }
 
+    // Mark the restored backup with restore timestamp and link pre-restore snapshot
+    updateBackupHistory(entry.id, {
+      restored_at: new Date().toISOString(),
+      pre_restore_snapshot_id: snapshotIds[0] || undefined,
+    });
+
     res.json({ success: true, snapshotIds });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Backup details endpoint
+router.get('/backups/:id/details', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const entry = getBackupHistoryById(id);
+    if (!entry) {
+      res.status(404).json({ error: 'Backup not found' });
+      return;
+    }
+
+    const syncStatus = getBackupSyncStatus(id);
+    let preRestoreBackup: BackupHistory | undefined = undefined;
+    if (entry.pre_restore_snapshot_id) {
+      preRestoreBackup = getBackupHistoryById(entry.pre_restore_snapshot_id);
+    }
+
+    res.json({
+      backup: entry,
+      syncStatus,
+      preRestoreBackup,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete local backup file (keep metadata)
+router.delete('/backups/:id/local', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const entry = getBackupHistoryById(id);
+    if (!entry) {
+      res.status(404).json({ error: 'Backup not found' });
+      return;
+    }
+
+    if (!entry.file_path) {
+      res.status(400).json({ error: 'Backup has no local file' });
+      return;
+    }
+
+    const fs = await import('fs/promises');
+    await fs.unlink(entry.file_path);
+
+    updateBackupHistory(id, { file_path: undefined });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      res.status(404).json({ error: 'Local file not found' });
+      return;
+    }
     res.status(500).json({ error: err.message });
   }
 });
