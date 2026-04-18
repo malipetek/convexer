@@ -315,7 +315,7 @@ export default function InstanceDetail() {
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-muted-foreground w-32">Dashboard:</span>
                       <a
-                        href={instance.tunnel_dashboard}
+                        href={instance.tunnel_dashboard + '/'}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-blue-500 hover:underline"
@@ -397,7 +397,7 @@ export default function InstanceDetail() {
                         } catch {
                           return `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
                         }
-                      })()}`}
+                      })()}/`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-blue-500 hover:underline font-mono"
