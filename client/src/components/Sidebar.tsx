@@ -22,12 +22,12 @@ export default function Sidebar({ onCreate }: SidebarProps) {
   return (
     <aside className="w-64 border-r bg-card h-screen flex flex-col">
       <div className="p-4 border-b">
-        <div className="flex items-center gap-2 mb-4">
+        <Link to="/" className="flex items-center gap-2 mb-4">
           <div className="p-2 bg-primary rounded-lg">
             <Database className="h-5 w-5 text-primary-foreground" />
           </div>
           <h1 className="text-xl font-bold">Convexer</h1>
-        </div>
+        </Link>
         <Button className="w-full" size="sm" onClick={onCreate}>
           <Plus className="h-4 w-4 mr-2" />
           New Instance
