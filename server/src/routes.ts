@@ -654,7 +654,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
       WorkingDir: '/repo',
       Tty: false,
       HostConfig: {
-        AutoRemove: true,
+        AutoRemove: false,
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
           `${hostProjectPath}:/repo`,
