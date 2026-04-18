@@ -622,13 +622,13 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     `git checkout ${branch}`,
     `git pull origin ${branch}`,
     'echo "[updater] docker compose down"',
-    'docker compose down',
+    'docker compose -p convexer down',
     'echo "[updater] docker rmi repo-convexer:latest"',
     'docker rmi repo-convexer:latest || true',
     'echo "[updater] docker compose build"',
-    'docker compose build --no-cache',
+    'docker compose -p convexer build --no-cache',
     'echo "[updater] docker compose up -d"',
-    'docker compose up -d',
+    'docker compose -p convexer up -d',
     'echo "[updater] done"',
   ].join(' && ');
 
