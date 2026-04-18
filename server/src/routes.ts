@@ -33,6 +33,7 @@ import
 import
 {
   createAndStartInstance,
+  startInstance,
   stopInstance,
   removeInstance,
   syncInstanceStatuses,
