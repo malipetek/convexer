@@ -672,6 +672,7 @@ function InstanceSettings ({ instance }: { instance: any })
   });
   const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
   const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
+  const [betterAuthEnabled, setBetterAuthEnabled] = useState(instance.betterauth_enabled === 1);
 
   const handleSave = async () => {
     setSaving(true);
@@ -700,6 +701,20 @@ function InstanceSettings ({ instance }: { instance: any })
 
   const handleSwitchChange = (key: string, checked: boolean, trueValue: string = 'true') => {
     handleChange(key, checked ? trueValue : '');
+  };
+
+  const handleBetterAuthToggle = async (checked: boolean) =>
+  {
+    try {
+      if (checked) {
+        await api.enableBetterAuth(instance.id);
+      } else {
+        await api.disableBetterAuth(instance.id);
+      }
+      setBetterAuthEnabled(checked);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update BetterAuth');
+    }
   };
 
   return (
