@@ -595,7 +595,10 @@ router.get('/version/check', async (_req: Request, res: Response) =>
 router.post('/version/update', async (_req: Request, res: Response) =>
 {
   const hostProjectPath = process.env.HOST_PROJECT_PATH;
+  console.log(`[update] HOST_PROJECT_PATH: ${hostProjectPath}`);
+
   if (!hostProjectPath) {
+    console.error('[update] HOST_PROJECT_PATH is not configured');
     res.status(500).json({
       error: 'HOST_PROJECT_PATH is not configured. Set it in docker-compose.yml to the host path of the repo (e.g. /home/convexer).',
     });
@@ -604,6 +607,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
 
   const branch = process.env.UPDATE_BRANCH || 'main';
   const updaterImage = process.env.UPDATER_IMAGE || 'docker:27-cli';
+  console.log(`[update] Branch: ${branch}, Updater image: ${updaterImage}`);
 
   // Script run inside the updater container. Uses the docker CLI + compose
   // plugin from the image, and installs git on the fly.
@@ -623,14 +627,14 @@ router.post('/version/update', async (_req: Request, res: Response) =>
   ].join(' && ');
 
   try {
-    console.log('Starting updater container...');
+    console.log('[update] Starting updater container...');
 
     // Ensure the image is present locally. dockerode.createContainer does NOT
     // auto-pull, so we pull explicitly. This is idempotent — fast no-op once
     // the image is cached.
     const images = await docker.listImages({ filters: JSON.stringify({ reference: [updaterImage] }) });
     if (images.length === 0) {
-      console.log(`Pulling ${updaterImage}...`);
+      console.log(`[update] Pulling ${updaterImage}...`);
       await new Promise<void>((resolve, reject) =>
       {
         docker.pull(updaterImage, (err: any, stream: NodeJS.ReadableStream) =>
@@ -639,7 +643,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
           docker.modem.followProgress(stream, (pErr: any) => pErr ? reject(pErr) : resolve());
         });
       });
-      console.log(`Pulled ${updaterImage}.`);
+      console.log(`[update] Pulled ${updaterImage}.`);
     }
 
     const container = await docker.createContainer({
@@ -658,7 +662,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     });
 
     await container.start();
-    console.log(`Updater container ${container.id.slice(0, 12)} started.`);
+    console.log(`[update] Updater container ${container.id.slice(0, 12)} started.`);
 
     res.status(202).json({
       success: true,
@@ -666,7 +670,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
       updater_container_id: container.id,
     });
   } catch (err: any) {
-    console.error('Failed to start updater:', err);
+    console.error('[update] Failed to start updater:', err);
     res.status(500).json({ error: err.message });
   }
 });
