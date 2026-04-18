@@ -820,10 +820,7 @@ function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, 
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <DestinationSection
-            backupConfig={backupConfig}
-            setBackupConfig={setBackupConfig}
-          />
+          <DestinationSection instanceId={instanceId} />
         </CardContent>
       </Card>
     </>
@@ -1159,218 +1156,290 @@ function BackupDetailDialog ({ backupId, open, onClose }: { backupId: string; op
   );
 }
 
-function DestinationSection ({ backupConfig, setBackupConfig }: { backupConfig: any; setBackupConfig: any })
+function DestinationSection ({ instanceId }: { instanceId: string })
 {
-  const [showSshKey, setShowSshKey] = useState(false);
-  const [sshKey, setSshKey] = useState('');
-  const [loadingKey, setLoadingKey] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const queryClient = useQueryClient();
+  const { data: destinationsData, isLoading } = useQuery({
+    queryKey: ['backupDestinations', instanceId],
+    queryFn: () => api.backup.getDestinations(instanceId),
+    enabled: !!instanceId,
+  });
 
-  const destType = backupConfig?.destination_type || 'local';
-  const update = (patch: any) => setBackupConfig({ ...backupConfig, ...patch });
+  const [editingDest, setEditingDest] = useState<string | null>(null);
+  const [newDestType, setNewDestType] = useState<string>('rsync');
+  const [showAddForm, setShowAddForm] = useState(false);
 
-  const loadSshKey = async () =>
+  const destinations = destinationsData?.destinations || [];
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.backup.updateDestination(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backupDestinations', instanceId] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.backup.deleteDestination(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backupDestinations', instanceId] }),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => api.backup.createDestination(instanceId, data),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['backupDestinations', instanceId] });
+      setShowAddForm(false);
+      setNewDestType('rsync');
+    },
+  });
+
+  const destTypeLabel = (type: string) =>
   {
-    setLoadingKey(true);
-    try {
-      const { publicKey } = await api.backup.getSshKey();
-      setSshKey(publicKey);
-      setShowSshKey(true);
-    } catch (err: any) {
-      alert(err.message || 'Failed to load SSH key');
-    } finally {
-      setLoadingKey(false);
-    }
+    const labels: Record<string, string> = { rsync: 'Rsync', koofr: 'Koofr', webdav: 'WebDAV', s3: 'S3' };
+    return labels[type] || type;
   };
 
-  const handleCopyKey = () =>
+  const DestinationForm = ({ dest, onCancel, onSave }: { dest?: any; onCancel: () => void; onSave: (data: any) => void }) =>
   {
-    navigator.clipboard.writeText(sshKey);
-    alert('SSH public key copied to clipboard');
-  };
+    const [formData, setFormData] = useState(() =>
+    {
+      if (dest) {
+        const { id, instance_id, created_at, updated_at, ...rest } = dest;
+        return rest;
+      }
+      return { destination_type: newDestType, enabled: 1 };
+    });
 
-  const handleTest = async () =>
-  {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await api.backup.testDestination({
-        destination_type: destType,
-        rsync_target: backupConfig?.rsync_target,
-        koofr_email: backupConfig?.koofr_email,
-        koofr_password: backupConfig?.koofr_password,
-        webdav_url: backupConfig?.webdav_url,
-        webdav_user: backupConfig?.webdav_user,
-        webdav_password: backupConfig?.webdav_password,
-        remote_subfolder: backupConfig?.remote_subfolder,
-      });
-      setTestResult({ success: true, message: result.output || 'Connection successful!' });
-    } catch (err: any) {
-      setTestResult({ success: false, message: err.message || 'Connection failed' });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-      <div className="space-y-2">
-        <Label className="text-sm font-semibold">Backup Destination</Label>
-        <Select
-          value={destType}
-          onValueChange={(value) => update({ destination_type: value })}
-          disabled={!backupConfig?.enabled}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="local">Local only (no remote sync)</SelectItem>
-            <SelectItem value="rsync">Rsync (SSH)</SelectItem>
-            <SelectItem value="koofr">Koofr</SelectItem>
-            <SelectItem value="webdav">WebDAV (generic)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {destType === 'rsync' && (
-        <>
+    return (
+      <div className="space-y-4 border-t pt-4">
+        {dest && (
           <div className="flex items-center justify-between">
-            <Label className="text-xs">SSH Authentication</Label>
-            <Button type="button" variant="outline" size="sm" onClick={loadSshKey} disabled={loadingKey}>
-              {loadingKey ? 'Loading...' : 'Show SSH Public Key'}
-            </Button>
+            <Label>Enabled</Label>
+            <Switch
+              checked={formData.enabled === 1}
+              onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked ? 1 : 0 })}
+            />
           </div>
+        )}
 
-          {showSshKey && (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Add this SSH public key to <code className="bg-background px-1 rounded">~/.ssh/authorized_keys</code> on your destination server:
-              </p>
-              <div className="relative">
-                <pre className="text-xs p-2 bg-background border rounded overflow-x-auto break-all whitespace-pre-wrap">{sshKey}</pre>
-                <Button type="button" size="sm" variant="ghost" className="absolute top-1 right-1" onClick={handleCopyKey}>
-                  <Copy className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          )}
-
+        {formData.destination_type === 'rsync' && (
           <div className="space-y-2">
-            <Label htmlFor="rsync-target" className="text-xs">Rsync Target</Label>
+            <Label htmlFor="rsync-target">Rsync Target (user@host:path)</Label>
             <Input
               id="rsync-target"
-              placeholder="user@host:/path/to/backups"
-              value={backupConfig?.rsync_target || ''}
-              onChange={(e) => update({ rsync_target: e.target.value })}
-              disabled={!backupConfig?.enabled}
+              placeholder="user@backup-server:/backups"
+              value={formData.rsync_target || ''}
+              onChange={(e) => setFormData({ ...formData, rsync_target: e.target.value })}
             />
-            <p className="text-xs text-muted-foreground">
-              Format: <code className="bg-background px-1 rounded">user@host:/path</code>
-            </p>
           </div>
-        </>
-      )}
+        )}
 
-      {destType === 'koofr' && (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor="koofr-email" className="text-xs">Koofr Email</Label>
-            <Input
-              id="koofr-email"
-              type="email"
-              placeholder="you@example.com"
-              value={backupConfig?.koofr_email || ''}
-              onChange={(e) => update({ koofr_email: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="koofr-password" className="text-xs">Koofr App Password</Label>
-            <Input
-              id="koofr-password"
-              type="password"
-              placeholder="App password from Koofr settings"
-              value={backupConfig?.koofr_password || ''}
-              onChange={(e) => update({ koofr_password: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Create an app password at <a href="https://app.koofr.net/app/admin/preferences/password" target="_blank" rel="noreferrer" className="underline">app.koofr.net → Preferences → App passwords</a>. WebDAV endpoint <code className="bg-background px-1 rounded">app.koofr.net/dav/Koofr</code> is used automatically.
-            </p>
-          </div>
-        </>
-      )}
+        {formData.destination_type === 'koofr' && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="koofr-email">Koofr Email</Label>
+              <Input
+                id="koofr-email"
+                type="email"
+                value={formData.koofr_email || ''}
+                onChange={(e) => setFormData({ ...formData, koofr_email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="koofr-password">Koofr Password</Label>
+              <Input
+                id="koofr-password"
+                type="password"
+                value={formData.koofr_password || ''}
+                onChange={(e) => setFormData({ ...formData, koofr_password: e.target.value })}
+              />
+            </div>
+          </>
+        )}
 
-      {destType === 'webdav' && (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor="webdav-url" className="text-xs">WebDAV URL</Label>
-            <Input
-              id="webdav-url"
-              placeholder="https://webdav.example.com/dav"
-              value={backupConfig?.webdav_url || ''}
-              onChange={(e) => update({ webdav_url: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="webdav-user" className="text-xs">Username</Label>
-            <Input
-              id="webdav-user"
-              value={backupConfig?.webdav_user || ''}
-              onChange={(e) => update({ webdav_user: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="webdav-password" className="text-xs">Password</Label>
-            <Input
-              id="webdav-password"
-              type="password"
-              value={backupConfig?.webdav_password || ''}
-              onChange={(e) => update({ webdav_password: e.target.value })}
-              disabled={!backupConfig?.enabled}
-            />
-          </div>
-        </>
-      )}
+        {formData.destination_type === 'webdav' && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="webdav-url">WebDAV URL</Label>
+              <Input
+                id="webdav-url"
+                placeholder="https://dav.example.com/remote.php/webdav/"
+                value={formData.webdav_url || ''}
+                onChange={(e) => setFormData({ ...formData, webdav_url: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="webdav-user">Username</Label>
+              <Input
+                id="webdav-user"
+                value={formData.webdav_user || ''}
+                onChange={(e) => setFormData({ ...formData, webdav_user: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="webdav-password">Password</Label>
+              <Input
+                id="webdav-password"
+                type="password"
+                value={formData.webdav_password || ''}
+                onChange={(e) => setFormData({ ...formData, webdav_password: e.target.value })}
+              />
+            </div>
+          </>
+        )}
 
-      {destType !== 'local' && (
+        {formData.destination_type === 's3' && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="s3-bucket">S3 Bucket</Label>
+              <Input
+                id="s3-bucket"
+                placeholder="my-backup-bucket"
+                value={formData.s3_bucket || ''}
+                onChange={(e) => setFormData({ ...formData, s3_bucket: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="s3-region">Region</Label>
+              <Input
+                id="s3-region"
+                placeholder="us-east-1"
+                value={formData.s3_region || ''}
+                onChange={(e) => setFormData({ ...formData, s3_region: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="s3-access-key">Access Key</Label>
+              <Input
+                id="s3-access-key"
+                value={formData.s3_access_key || ''}
+                onChange={(e) => setFormData({ ...formData, s3_access_key: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="s3-secret-key">Secret Key</Label>
+              <Input
+                id="s3-secret-key"
+                type="password"
+                value={formData.s3_secret_key || ''}
+                onChange={(e) => setFormData({ ...formData, s3_secret_key: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="s3-endpoint">Endpoint (optional)</Label>
+              <Input
+                id="s3-endpoint"
+                placeholder="https://s3.amazonaws.com"
+                value={formData.s3_endpoint || ''}
+                onChange={(e) => setFormData({ ...formData, s3_endpoint: e.target.value })}
+              />
+            </div>
+          </>
+        )}
+
         <div className="space-y-2">
-          <Label htmlFor="remote-subfolder" className="text-xs">Remote Subfolder (optional)</Label>
+          <Label htmlFor="remote-subfolder">Remote Subfolder (optional)</Label>
           <Input
             id="remote-subfolder"
-            placeholder="convexer-backups/production"
-            value={backupConfig?.remote_subfolder || ''}
-            onChange={(e) => update({ remote_subfolder: e.target.value })}
-            disabled={!backupConfig?.enabled}
+            placeholder="instance-backups"
+            value={formData.remote_subfolder || ''}
+            onChange={(e) => setFormData({ ...formData, remote_subfolder: e.target.value })}
           />
-          <p className="text-xs text-muted-foreground">
-            Backups will be placed in this folder within the destination. Leave empty to use the root.
-          </p>
+          <p className="text-xs text-muted-foreground">Subfolder within the remote destination for this instance's backups</p>
         </div>
-      )}
 
-      {destType !== 'local' && (
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleTest}
-            disabled={testing}
-          >
-            {testing ? 'Testing...' : 'Test Connection'}
-          </Button>
+          <Button onClick={() => onSave(formData)}>{dest ? 'Save' : 'Add Destination'}</Button>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+        </div>
+      </div>
+    );
+  };
+
+  if (isLoading) return <div className="text-sm text-muted-foreground">Loading destinations...</div>;
+
+  return (
+    <div className="space-y-4">
+      {destinations.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-8">
+          No remote destinations configured. Add one to enable off-site backups.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {destinations.map((dest: any) => (
+            <div key={dest.id} className="border rounded-lg p-4">
+              {editingDest === dest.id ? (
+                <DestinationForm
+                  dest={dest}
+                  onCancel={() => setEditingDest(null)}
+                  onSave={(data) => updateMutation.mutate({ id: dest.id, data })}
+                />
+              ) : (
+                <>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="font-semibold capitalize">{destTypeLabel(dest.destination_type)}</span>
+                        <Switch
+                          checked={dest.enabled === 1}
+                          onCheckedChange={(checked) => updateMutation.mutate({ id: dest.id, data: { enabled: checked ? 1 : 0 } })}
+                        />
+                        {dest.enabled === 1 && <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Active</Badge>}
+                      </div>
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        {dest.destination_type === 'rsync' && <div>Target: {dest.rsync_target}</div>}
+                        {dest.destination_type === 'koofr' && <div>Email: {dest.koofr_email}</div>}
+                        {dest.destination_type === 'webdav' && <div>URL: {dest.webdav_url}</div>}
+                        {dest.destination_type === 's3' && <div>Bucket: {dest.s3_bucket} / {dest.s3_region}</div>}
+                        {dest.remote_subfolder && <div>Subfolder: {dest.remote_subfolder}</div>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setEditingDest(dest.id)}>Edit</Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                          {
+                            if (window.confirm('Delete this destination?')) {
+                              deleteMutation.mutate(dest.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {testResult && (
-        <div className={`text-xs p-2 rounded ${testResult.success ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
-          <div className="font-semibold">{testResult.success ? 'Connection OK' : 'Connection Failed'}</div>
-          <pre className="whitespace-pre-wrap mt-1">{testResult.message}</pre>
+      {!showAddForm ? (
+        <Button variant="outline" className="w-full" onClick={() => setShowAddForm(true)}>
+          <Upload className="h-4 w-4 mr-2" />
+          Add Remote Destination
+        </Button>
+      ) : (
+        <div className="border rounded-lg p-4 bg-muted/50">
+          <div className="mb-4">
+            <Label htmlFor="new-dest-type">Destination Type</Label>
+            <Select value={newDestType} onValueChange={setNewDestType}>
+              <SelectTrigger id="new-dest-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="rsync">Rsync</SelectItem>
+                <SelectItem value="koofr">Koofr</SelectItem>
+                <SelectItem value="webdav">WebDAV</SelectItem>
+                <SelectItem value="s3">S3 Compatible</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DestinationForm
+            onCancel={() => setShowAddForm(false)}
+            onSave={(data) => createMutation.mutate(data)}
+          />
         </div>
       )}
     </div>

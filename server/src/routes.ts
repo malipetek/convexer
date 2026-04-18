@@ -23,7 +23,12 @@ import
   updateBackupSettings,
   updateBackupHistory,
   getBackupSyncStatus,
-  BackupHistory
+  BackupHistory,
+  getBackupDestinations,
+  getBackupDestination,
+  createBackupDestination,
+  updateBackupDestination,
+  deleteBackupDestination
 } from './db.js';
 import
 {
@@ -1309,6 +1314,57 @@ router.delete('/backups/:id/local', async (req: Request, res: Response) =>
       res.status(404).json({ error: 'Local file not found' });
       return;
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Backup destinations routes
+router.get('/instances/:id/destinations', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const destinations = getBackupDestinations(id);
+    res.json({ destinations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/instances/:id/destinations', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { randomUUID } = await import('crypto');
+    const destination = createBackupDestination({
+      id: randomUUID(),
+      instance_id: id,
+      destination_type: req.body.destination_type,
+      ...req.body,
+    });
+    res.json({ destination });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/destinations/:id', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const destination = updateBackupDestination(id, req.body);
+    res.json({ destination });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/destinations/:id', async (req: Request, res: Response) =>
+{
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const success = deleteBackupDestination(id);
+    res.json({ success });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

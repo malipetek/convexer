@@ -156,6 +156,49 @@ db.exec(`
   )
 `);
 
+// Backup destinations table (multiple remote targets per instance)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_destinations (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    destination_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    remote_subfolder TEXT,
+    rsync_target TEXT,
+    koofr_email TEXT,
+    koofr_password TEXT,
+    webdav_url TEXT,
+    webdav_user TEXT,
+    webdav_password TEXT,
+    s3_bucket TEXT,
+    s3_region TEXT,
+    s3_access_key TEXT,
+    s3_secret_key TEXT,
+    s3_endpoint TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+  )
+`);
+
+// Migration: move existing destination data from backup_config to backup_destinations
+try {
+  const destCols = (db.prepare("PRAGMA table_info(backup_destinations)").all() as any[]).map((c: any) => c.name);
+  if (destCols.length > 0) {
+    const configs = db.prepare('SELECT id, instance_id, destination_type, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint FROM backup_configs WHERE destination_type IS NOT NULL AND destination_type != "local"').all() as any[];
+    for (const config of configs) {
+      const existing = db.prepare('SELECT id FROM backup_destinations WHERE instance_id = ? AND destination_type = ?').get(config.instance_id, config.destination_type);
+      if (!existing) {
+        const destId = config.id + '-dest';
+        db.prepare(`
+          INSERT INTO backup_destinations (id, instance_id, destination_type, enabled, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint)
+          VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(destId, config.instance_id, config.destination_type, config.remote_subfolder, config.rsync_target, config.koofr_email, config.koofr_password, config.webdav_url, config.webdav_user, config.webdav_password, config.s3_bucket, config.s3_region, config.s3_access_key, config.s3_secret_key, config.s3_endpoint);
+      }
+    }
+  }
+} catch (e) { console.error('Migration failed: backup_destinations', e); }
+
 // Global backup settings table
 db.exec(`
   CREATE TABLE IF NOT EXISTS backup_settings (
@@ -262,6 +305,28 @@ export interface BackupConfig
   backup_types: string;
   local_path?: string;
   destination_type: string;
+  remote_subfolder?: string;
+  rsync_target?: string;
+  koofr_email?: string;
+  koofr_password?: string;
+  webdav_url?: string;
+  webdav_user?: string;
+  webdav_password?: string;
+  s3_bucket?: string;
+  s3_region?: string;
+  s3_access_key?: string;
+  s3_secret_key?: string;
+  s3_endpoint?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackupDestination
+{
+  id: string;
+  instance_id: string;
+  destination_type: string;
+  enabled: number;
   remote_subfolder?: string;
   rsync_target?: string;
   koofr_email?: string;
@@ -485,4 +550,60 @@ export function updateBackupSettings (settings: Partial<BackupSettings>): Backup
   `);
   stmt.run({ ...settings, id: 'global' });
   return getBackupSettings()!;
+}
+
+// Backup destinations functions
+export function getBackupDestinations (instanceId: string): BackupDestination[]
+{
+  return db.prepare('SELECT * FROM backup_destinations WHERE instance_id = ? ORDER BY created_at DESC').all(instanceId) as BackupDestination[];
+}
+
+export function getBackupDestination (id: string): BackupDestination | undefined
+{
+  return db.prepare('SELECT * FROM backup_destinations WHERE id = ?').get(id) as BackupDestination | undefined;
+}
+
+export function createBackupDestination (destination: Partial<BackupDestination> & { id: string; instance_id: string; destination_type: string }): BackupDestination
+{
+  const stmt = db.prepare(`
+    INSERT INTO backup_destinations (id, instance_id, destination_type, enabled, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint)
+    VALUES (@id, @instance_id, @destination_type, @enabled, @remote_subfolder, @rsync_target, @koofr_email, @koofr_password, @webdav_url, @webdav_user, @webdav_password, @s3_bucket, @s3_region, @s3_access_key, @s3_secret_key, @s3_endpoint)
+  `);
+  stmt.run({
+    id: destination.id,
+    instance_id: destination.instance_id,
+    destination_type: destination.destination_type,
+    enabled: destination.enabled ?? 1,
+    remote_subfolder: destination.remote_subfolder ?? null,
+    rsync_target: destination.rsync_target ?? null,
+    koofr_email: destination.koofr_email ?? null,
+    koofr_password: destination.koofr_password ?? null,
+    webdav_url: destination.webdav_url ?? null,
+    webdav_user: destination.webdav_user ?? null,
+    webdav_password: destination.webdav_password ?? null,
+    s3_bucket: destination.s3_bucket ?? null,
+    s3_region: destination.s3_region ?? null,
+    s3_access_key: destination.s3_access_key ?? null,
+    s3_secret_key: destination.s3_secret_key ?? null,
+    s3_endpoint: destination.s3_endpoint ?? null,
+  });
+  return db.prepare('SELECT * FROM backup_destinations WHERE id = ?').get(destination.id) as BackupDestination;
+}
+
+export function updateBackupDestination (id: string, updates: Partial<BackupDestination>): BackupDestination | undefined
+{
+  const allowed = ['enabled', 'remote_subfolder', 'rsync_target', 'koofr_email', 'koofr_password', 'webdav_url', 'webdav_user', 'webdav_password', 's3_bucket', 's3_region', 's3_access_key', 's3_secret_key', 's3_endpoint'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return db.prepare('SELECT * FROM backup_destinations WHERE id = ?').get(id) as BackupDestination | undefined;
+
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  const stmt = db.prepare(`UPDATE backup_destinations SET ${sets}, updated_at = datetime('now') WHERE id = @id`);
+  stmt.run({ id, ...updates });
+  return db.prepare('SELECT * FROM backup_destinations WHERE id = ?').get(id) as BackupDestination | undefined;
+}
+
+export function deleteBackupDestination (id: string): boolean
+{
+  const result = db.prepare('DELETE FROM backup_destinations WHERE id = ?').run(id);
+  return result.changes > 0;
 }

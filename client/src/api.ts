@@ -201,6 +201,18 @@ export const api = {
     deleteBackupLocalFile: (backupId: string) => request<{ success: boolean }>(`/backups/${backupId}/local`, {
       method: 'DELETE',
     }),
+    getDestinations: (instanceId: string) => request<{ destinations: any[] }>(`/instances/${instanceId}/destinations`),
+    createDestination: (instanceId: string, data: any) => request<{ destination: any }>(`/instances/${instanceId}/destinations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    updateDestination: (destinationId: string, data: any) => request<{ destination: any }>(`/destinations/${destinationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    deleteDestination: (destinationId: string) => request<{ success: boolean }>(`/destinations/${destinationId}`, {
+      method: 'DELETE',
+    }),
     getSettings: () => request<{ settings: any }>('/backup/settings'),
     updateSettings: (settings: any) => request<{ settings: any }>('/backup/settings', {
       method: 'POST',
