@@ -825,6 +825,41 @@ function InstanceSettings ({ instance }: { instance: any })
             </p>
           </div>
 
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">BetterAuth Container</div>
+              <div className="text-xs text-muted-foreground">Enable optional BetterAuth container for authentication</div>
+            </div>
+            <Switch
+              checked={betterAuthEnabled}
+              onCheckedChange={handleBetterAuthToggle}
+            />
+          </div>
+
+          {betterAuthEnabled && (
+            <div className="space-y-2">
+              <Label htmlFor="better-auth-url">BETTER_AUTH_URL (auto-set from SITE_DOMAIN)</Label>
+              <Input
+                id="better-auth-url"
+                type="text"
+                value={(() =>
+                {
+                  try {
+                    const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                    return env.SITE_DOMAIN || `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
+                  } catch {
+                    return `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
+                  }
+                })()}
+                disabled
+                className="bg-muted"
+              />
+              <p className="text-xs text-muted-foreground">
+                Automatically set from SITE_DOMAIN. Add custom BETTER_AUTH_* variables in custom environment variables below.
+              </p>
+            </div>
+          )}
+
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save & Restart Backend'}
           </Button>
