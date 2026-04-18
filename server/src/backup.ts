@@ -386,8 +386,8 @@ async function uploadToDestination (filePath: string, instanceId: string): Promi
       const result = await webdavBackup(filePath, dest.webdav_url, dest.webdav_user, dest.webdav_password, subfolder);
       if (!result.success) console.error('WebDAV upload failed:', result.error);
     } else if (destType === 's3' && dest.s3_bucket && dest.s3_access_key && dest.s3_secret_key) {
-      const result = await s3Backup(filePath, dest.s3_bucket, dest.s3_region, dest.s3_access_key, dest.s3_secret_key, dest.s3_endpoint, subfolder);
-      if (!result.success) console.error('S3 upload failed:', result.error);
+      // S3 backup not yet implemented
+      console.error('S3 backup not yet implemented');
     }
   }
 }

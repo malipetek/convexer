@@ -67,7 +67,7 @@ import
   refreshBackupScheduler
 } from './scheduler.js';
 import { isAuthEnabled, createSession } from './auth.js';
-import { isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
+import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames, getTunnelDomain, removeTunnelRoutes } from './tunnel.js';
 import { randomUUID } from 'crypto';
 import { getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
