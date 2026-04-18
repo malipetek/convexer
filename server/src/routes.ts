@@ -668,33 +668,10 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     await container.start();
     console.log(`[update] Updater container ${container.id.slice(0, 12)} started.`);
 
-    // Wait for the container to complete
-    await container.wait();
-
-    // Check the exit status
-    const containerInfo = await container.inspect();
-    const exitCode = containerInfo.State.ExitCode;
-
-    console.log(`[update] Updater container exited with code ${exitCode}`);
-
-    // Clean up the container
-    await container.remove();
-
-    if (exitCode !== 0) {
-      console.error('[update] Update failed');
-      res.status(500).json({
-        success: false,
-        error: 'Update failed. Check server logs for details.',
-      });
-      return;
-    }
-
-    // Wait a moment for the new containers to start
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    res.status(200).json({
+    res.status(202).json({
       success: true,
-      message: 'Update completed successfully.',
+      message: 'Update started. The server will restart shortly.',
+      updater_container_id: container.id,
     });
   } catch (err: any) {
     console.error('[update] Failed to start updater:', err);
@@ -726,6 +703,39 @@ router.get('/version/update/logs', async (_req: Request, res: Response) =>
       status: info.Status,
       logs,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check update status (success or failure)
+router.get('/version/update/status', async (_req: Request, res: Response) =>
+{
+  try {
+    const containers = await docker.listContainers({
+      all: true,
+      filters: JSON.stringify({ label: ['convexer.role=updater'] }),
+    });
+    if (containers.length === 0) {
+      res.json({ running: false, success: null });
+      return;
+    }
+    // Most recent first
+    containers.sort((a, b) => b.Created - a.Created);
+    const info = containers[0];
+
+    if (info.State === 'running') {
+      res.json({ running: true, success: null });
+      return;
+    }
+
+    // Container has stopped, check exit code
+    const container = docker.getContainer(info.Id);
+    const containerInfo = await container.inspect();
+    const exitCode = containerInfo.State.ExitCode;
+    const success = exitCode === 0;
+
+    res.json({ running: false, success, exitCode });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
