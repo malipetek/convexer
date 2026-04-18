@@ -621,12 +621,14 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     'git fetch origin',
     `git checkout ${branch}`,
     `git pull origin ${branch}`,
+    'echo "[updater] docker compose down"',
+    'docker compose down',
     'echo "[updater] docker rmi repo-convexer:latest"',
     'docker rmi repo-convexer:latest || true',
     'echo "[updater] docker compose build"',
     'docker compose build --no-cache',
-    'echo "[updater] docker compose up -d --force-recreate"',
-    'docker compose up -d --force-recreate',
+    'echo "[updater] docker compose up -d"',
+    'docker compose up -d',
     'echo "[updater] done"',
   ].join(' && ');
 
