@@ -65,6 +65,30 @@ for (const columnDef of postgresColumns) {
   }
 }
 
+// Migration: add version and health check metadata columns
+const metadataColumns = [
+  'pinned_version TEXT',
+  'detected_version TEXT',
+  'health_check_timeout INTEGER DEFAULT 300000',
+  'postgres_health_check_timeout INTEGER DEFAULT 60000',
+  'betterauth_enabled INTEGER DEFAULT 0',
+  'betterauth_container_id TEXT',
+  'betterauth_port INTEGER DEFAULT 6792'
+];
+
+for (const columnDef of metadataColumns) {
+  const columnName = columnDef.split(' ')[0];
+  try {
+    db.exec(`ALTER TABLE instances ADD COLUMN ${columnDef}`);
+  } catch (err: any) {
+    if (err.message.includes('duplicate column')) {
+      // Column already exists, that's fine
+    } else {
+      console.warn(`Failed to add ${columnName} column:`, err.message);
+    }
+  }
+}
+
 // Backup configuration table
 db.exec(`
   CREATE TABLE IF NOT EXISTS backup_configs (
@@ -140,6 +164,12 @@ try {
   }
   if (!histCols.includes('pre_restore_snapshot_id')) {
     db.exec('ALTER TABLE backup_history ADD COLUMN pre_restore_snapshot_id TEXT');
+  }
+  if (!histCols.includes('convex_version')) {
+    db.exec('ALTER TABLE backup_history ADD COLUMN convex_version TEXT');
+  }
+  if (!histCols.includes('source_instance_name')) {
+    db.exec('ALTER TABLE backup_history ADD COLUMN source_instance_name TEXT');
   }
 } catch (e) { console.error('Migration failed: backup_history columns', e); }
 
@@ -241,7 +271,9 @@ export function createInstance (instance: Omit<Instance, 'created_at' | 'updated
 export function updateInstance(id: string, updates: Partial<Instance>): Instance | undefined {
   const allowed = [
     'status', 'backend_container_id', 'dashboard_container_id', 'postgres_container_id',
-    'admin_key', 'error_message', 'extra_env', 'postgres_password'
+    'admin_key', 'error_message', 'extra_env', 'postgres_password',
+    'pinned_version', 'detected_version', 'health_check_timeout', 'postgres_health_check_timeout',
+    'betterauth_enabled', 'betterauth_container_id', 'betterauth_port'
   ];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return getInstance(id);
@@ -368,6 +400,8 @@ export interface BackupHistory
   error_message?: string;
   started_at: string;
   completed_at?: string;
+  convex_version?: string;
+  source_instance_name?: string;
 }
 
 export interface BackupSettings
@@ -453,8 +487,8 @@ export function getBackupHistoryById (id: string): BackupHistory | undefined
 export function createBackupHistory (history: Partial<BackupHistory> & { id: string; instance_id: string; backup_type: string }): BackupHistory
 {
   const stmt = db.prepare(`
-    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, label, restored_at, pre_restore_snapshot_id, error_message, completed_at)
-    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @label, @restored_at, @pre_restore_snapshot_id, @error_message, @completed_at)
+    INSERT INTO backup_history (id, instance_id, backup_type, status, size_bytes, file_path, storage_type, label, restored_at, pre_restore_snapshot_id, error_message, completed_at, convex_version, source_instance_name)
+    VALUES (@id, @instance_id, @backup_type, @status, @size_bytes, @file_path, @storage_type, @label, @restored_at, @pre_restore_snapshot_id, @error_message, @completed_at, @convex_version, @source_instance_name)
   `);
   stmt.run({
     id: history.id,
@@ -469,13 +503,15 @@ export function createBackupHistory (history: Partial<BackupHistory> & { id: str
     pre_restore_snapshot_id: history.pre_restore_snapshot_id ?? null,
     error_message: history.error_message ?? null,
     completed_at: history.completed_at ?? null,
+    convex_version: history.convex_version ?? null,
+    source_instance_name: history.source_instance_name ?? null,
   });
   return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(history.id) as BackupHistory;
 }
 
 export function updateBackupHistory (id: string, updates: Partial<BackupHistory>): BackupHistory | undefined
 {
-  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'label', 'restored_at', 'pre_restore_snapshot_id', 'error_message', 'completed_at'];
+  const allowed = ['status', 'size_bytes', 'file_path', 'storage_type', 'label', 'restored_at', 'pre_restore_snapshot_id', 'error_message', 'completed_at', 'convex_version', 'source_instance_name'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return db.prepare('SELECT * FROM backup_history WHERE id = ?').get(id) as BackupHistory | undefined;
 

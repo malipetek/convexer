@@ -93,6 +93,24 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ extra_env }),
     }),
+  updateHealthCheckSettings: (id: string, health_check_timeout: number, postgres_health_check_timeout: number) =>
+    request<Instance>(`/instances/${id}/health-check-settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ health_check_timeout, postgres_health_check_timeout }),
+    }),
+  upgradeInstance: (id: string, targetVersion: string) =>
+    request<{ success: boolean; message: string; backupIds: string[] }>(`/instances/${id}/upgrade`, {
+      method: 'POST',
+      body: JSON.stringify({ targetVersion }),
+    }),
+  enableBetterAuth: (id: string) =>
+    request<{ success: boolean; message: string }>(`/instances/${id}/betterauth/enable`, {
+      method: 'POST',
+    }),
+  disableBetterAuth: (id: string) =>
+    request<{ success: boolean; message: string }>(`/instances/${id}/betterauth/disable`, {
+      method: 'POST',
+    }),
   getStats: (id: string) =>
     request<InstanceStats>(`/instances/${id}/stats`),
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),

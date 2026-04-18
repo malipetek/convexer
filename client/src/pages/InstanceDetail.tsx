@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
@@ -330,10 +330,23 @@ export default function InstanceDetail() {
               <Card>
                 <CardHeader>
                   <CardTitle>Subdomain URLs</CardTitle>
+                  <CardDescription className="text-xs">
+                    Backend: Convex API endpoint | Site: HTTP actions endpoint | Dashboard: Admin UI
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Backend:</span>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Backend URL</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                        const url = env.BACKEND_DOMAIN || `${instance.name}.${hostname || 'convexer.example.com'}`;
+                        navigator.clipboard.writeText(`https://${url}`);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
                     <a
                       href={`https://${(() =>
                       {
@@ -346,7 +359,7 @@ export default function InstanceDetail() {
                       })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline font-mono"
+                      className="text-sm text-blue-500 hover:underline font-mono block"
                     >
                       {(() =>
                       {
@@ -358,9 +371,22 @@ export default function InstanceDetail() {
                         }
                       })()}
                     </a>
+                    <p className="text-xs text-muted-foreground">
+                      Use this URL in your frontend to connect to Convex
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Site:</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Site URL (HTTP Actions)</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                        const url = env.SITE_DOMAIN || `${instance.name}-site.${hostname || 'convexer.example.com'}`;
+                        navigator.clipboard.writeText(`https://${url}`);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
                     <a
                       href={`https://${(() =>
                       {
@@ -373,7 +399,7 @@ export default function InstanceDetail() {
                       })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline font-mono"
+                      className="text-sm text-blue-500 hover:underline font-mono block"
                     >
                       {(() =>
                       {
@@ -385,9 +411,22 @@ export default function InstanceDetail() {
                         }
                       })()}
                     </a>
+                    <p className="text-xs text-muted-foreground">
+                      HTTP actions and webhook endpoints
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground w-32">Dashboard:</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Dashboard URL</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                        const url = env.DASHBOARD_DOMAIN || `${instance.name}-dash.${hostname || 'convexer.example.com'}`;
+                        navigator.clipboard.writeText(`https://${url}/`);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
                     <a
                       href={`https://${(() =>
                       {
@@ -400,7 +439,7 @@ export default function InstanceDetail() {
                       })()}/`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline font-mono"
+                      className="text-sm text-blue-500 hover:underline font-mono block"
                     >
                       {(() =>
                       {
@@ -412,6 +451,58 @@ export default function InstanceDetail() {
                         }
                       })()}
                     </a>
+                    <p className="text-xs text-muted-foreground">
+                      Admin dashboard for viewing data and logs
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>CLI Setup</CardTitle>
+                  <CardDescription className="text-xs">
+                    Use these values with npx convex dev or npx convex deploy
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">CONVEX_SELF_HOSTED_URL</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                        const url = env.BACKEND_DOMAIN || `${instance.name}.${hostname || 'convexer.example.com'}`;
+                        navigator.clipboard.writeText(`https://${url}`);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
+                    <div className="text-sm text-muted-foreground font-mono bg-muted p-2 rounded">
+                      https://{(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.BACKEND_DOMAIN || `${instance.name}.${hostname || 'convexer.example.com'}`;
+                        } catch {
+                          return `${instance.name}.${hostname || 'convexer.example.com'}`;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">CONVEX_SELF_HOSTED_ADMIN_KEY</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        if (instance.admin_key) navigator.clipboard.writeText(instance.admin_key);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
+                    <div className="text-sm text-muted-foreground font-mono bg-muted p-2 rounded break-all">
+                      {instance.admin_key || 'Not available'}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -579,11 +670,14 @@ function InstanceSettings ({ instance }: { instance: any })
       return {};
     }
   });
+  const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
+  const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await api.updateSettings(instance.id, extraEnv);
+      await api.updateHealthCheckSettings(instance.id, healthCheckTimeout, postgresHealthCheckTimeout);
       alert('Settings saved');
     } catch (err: any) {
       alert(err.message || 'Failed to update settings');
@@ -696,6 +790,38 @@ function InstanceSettings ({ instance }: { instance: any })
             />
             <p className="text-sm text-muted-foreground">
               Set a custom domain for the dashboard (leave empty for default subdomain)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="health-check-timeout">Backend Health Check Timeout (ms)</Label>
+            <Input
+              id="health-check-timeout"
+              type="number"
+              value={healthCheckTimeout}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHealthCheckTimeout(Number(e.target.value))}
+              min="10000"
+              max="600000"
+              step="10000"
+            />
+            <p className="text-xs text-muted-foreground">
+              Maximum time to wait for Convex backend to become healthy (default: 300000ms / 5 minutes)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="postgres-health-check-timeout">PostgreSQL Health Check Timeout (ms)</Label>
+            <Input
+              id="postgres-health-check-timeout"
+              type="number"
+              value={postgresHealthCheckTimeout}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPostgresHealthCheckTimeout(Number(e.target.value))}
+              min="10000"
+              max="120000"
+              step="5000"
+            />
+            <p className="text-xs text-muted-foreground">
+              Maximum time to wait for PostgreSQL to become ready (default: 60000ms / 1 minute)
             </p>
           </div>
 

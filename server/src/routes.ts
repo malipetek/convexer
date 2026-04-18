@@ -37,7 +37,9 @@ import
   removeInstance,
   syncInstanceStatuses,
   getContainerLogs,
-  ensureImages
+  ensureImages,
+  createBetterAuthContainer,
+  removeBetterAuthContainer
 } from './docker.js';
 import
 {
@@ -182,7 +184,7 @@ router.post('/instances', (req: Request, res: Response) => {
 
   const instance = createInstance({
     id,
-    name: instanceName,
+    name: req.body.name || `instance-${Date.now()}`,
     status: 'creating',
     backend_port: ports.backendPort,
     site_proxy_port: ports.siteProxyPort,
@@ -193,7 +195,14 @@ router.post('/instances', (req: Request, res: Response) => {
     postgres_password: crypto.randomBytes(32).toString('hex'),
     instance_name: instanceName,
     instance_secret: instanceSecret,
-    extra_env: JSON.stringify(finalExtraEnv),
+    extra_env: req.body.extra_env ? JSON.stringify(req.body.extra_env) : null,
+    pinned_version: null,
+    detected_version: null,
+    health_check_timeout: 300000,
+    postgres_health_check_timeout: 60000,
+    betterauth_enabled: 0,
+    betterauth_container_id: null,
+    betterauth_port: 6792,
   });
 
   // Start creation in background
@@ -363,6 +372,24 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) =>
   }
 });
 
+router.put('/instances/:id/health-check-settings', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const { health_check_timeout, postgres_health_check_timeout } = req.body;
+
+  const updated = updateInstance(instance.id, {
+    health_check_timeout: health_check_timeout,
+    postgres_health_check_timeout: postgres_health_check_timeout,
+  });
+
+  res.json(updated);
+});
+
 // Update instance settings (extra_env)
 router.put('/instances/:id/settings', async (req: Request, res: Response) =>
 {
@@ -405,6 +432,129 @@ router.put('/instances/:id/settings', async (req: Request, res: Response) =>
   }
 
   res.json(getInstance(instance.id));
+});
+
+// Upgrade instance to specific Convex version
+router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const { targetVersion } = req.body;
+  if (!targetVersion) {
+    res.status(400).json({ error: 'targetVersion is required' });
+    return;
+  }
+
+  try {
+    // Create pre-upgrade backup
+    const backupId = uuidv4();
+    const { backupDatabase, backupVolume } = await import('./backup.js');
+
+    const dbBackup = await backupDatabase(instance, backupId, 'Pre-upgrade backup');
+    if (!dbBackup.success) {
+      res.status(500).json({ error: `Pre-upgrade backup failed: ${dbBackup.error}` });
+      return;
+    }
+
+    const volumeBackupId = uuidv4();
+    const volBackup = await backupVolume(instance, volumeBackupId, 'Pre-upgrade backup');
+    if (!volBackup.success) {
+      res.status(500).json({ error: `Pre-upgrade volume backup failed: ${volBackup.error}` });
+      return;
+    }
+
+    // Update pinned version
+    updateInstance(instance.id, { pinned_version: targetVersion });
+
+    // Stop and recreate backend/dashboard with new version
+    if (instance.backend_container_id) {
+      try {
+        const backend = docker.getContainer(instance.backend_container_id);
+        await backend.stop();
+        await backend.remove();
+      } catch (err: any) {
+        console.warn('Failed to stop/remove backend:', err.message);
+      }
+    }
+
+    if (instance.dashboard_container_id) {
+      try {
+        const dashboard = docker.getContainer(instance.dashboard_container_id);
+        await dashboard.stop();
+        await dashboard.remove();
+      } catch (err: any) {
+        console.warn('Failed to stop/remove dashboard:', err.message);
+      }
+    }
+
+    // Recreate with new version
+    const updated = getInstance(instance.id);
+    if (updated) {
+      await createAndStartInstance(updated);
+
+      // Update detected version after successful upgrade
+      updateInstance(instance.id, { detected_version: targetVersion });
+    }
+
+    res.json({
+      success: true,
+      message: 'Instance upgraded successfully',
+      backupIds: [backupId, volumeBackupId]
+    });
+  } catch (err: any) {
+    console.error('Upgrade failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Enable BetterAuth for instance
+router.post('/instances/:id/betterauth/enable', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  if (instance.betterauth_enabled) {
+    res.status(400).json({ error: 'BetterAuth is already enabled for this instance' });
+    return;
+  }
+
+  try {
+    await createBetterAuthContainer(instance);
+    res.json({ success: true, message: 'BetterAuth container started' });
+  } catch (err: any) {
+    console.error('Failed to start BetterAuth container:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Disable BetterAuth for instance
+router.post('/instances/:id/betterauth/disable', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  if (!instance.betterauth_enabled) {
+    res.status(400).json({ error: 'BetterAuth is not enabled for this instance' });
+    return;
+  }
+
+  try {
+    await removeBetterAuthContainer(instance);
+    res.json({ success: true, message: 'BetterAuth container stopped and removed' });
+  } catch (err: any) {
+    console.error('Failed to remove BetterAuth container:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get instance stats (CPU, memory, disk, network)
@@ -1341,7 +1491,7 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       return;
     }
 
-    const { backupId } = req.body;
+    const { backupId, force } = req.body;
     if (!backupId) {
       res.status(400).json({ error: 'backupId is required' });
       return;
@@ -1370,6 +1520,23 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
     if (entry.backup_type !== 'database' && entry.backup_type !== 'volume') {
       res.status(400).json({ error: `Unknown backup type: ${entry.backup_type}` });
       return;
+    }
+
+    // Version compatibility check
+    const backupVersion = entry.convex_version || 'unknown';
+    const currentVersion = instance.detected_version || instance.pinned_version || 'unknown';
+
+    if (backupVersion !== currentVersion && backupVersion !== 'unknown' && currentVersion !== 'unknown') {
+      if (!force) {
+        res.status(409).json({
+          error: 'Version mismatch',
+          warning: `Backup created with Convex version ${backupVersion}, but instance is currently running ${currentVersion}.`,
+          backupVersion,
+          currentVersion,
+          requiresForce: true
+        });
+        return;
+      }
     }
 
     // Auto-snapshot current state before overwriting
@@ -1423,7 +1590,7 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
       pre_restore_snapshot_id: snapshotIds[0] || undefined,
     });
 
-    res.json({ success: true, snapshotIds });
+    res.json({ success: true, snapshotIds, versionWarning: backupVersion !== currentVersion ? `Restored from version ${backupVersion} to ${currentVersion}` : undefined });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1764,6 +1931,13 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       instance_name: newName,
       instance_secret: crypto.randomBytes(32).toString('hex'),
       extra_env: JSON.stringify(newExtraEnv),
+      pinned_version: sourceInstance.pinned_version,
+      detected_version: null,
+      health_check_timeout: sourceInstance.health_check_timeout || 300000,
+      postgres_health_check_timeout: sourceInstance.postgres_health_check_timeout || 60000,
+      betterauth_enabled: 0,
+      betterauth_container_id: null,
+      betterauth_port: 6792,
     });
 
     // Create and start new instance; restore DB + volume after postgres is ready but before backend starts

@@ -12,6 +12,9 @@ const docker = new Docker();
 
 export async function backupDatabase (instance: Instance, backupId: string, label?: string): Promise<{ success: boolean; filePath?: string; error?: string }>
 {
+  // Get detected version from instance metadata
+  const convexVersion = instance.detected_version || instance.pinned_version || 'unknown';
+
   const history = createBackupHistory({
     id: backupId,
     instance_id: instance.id,
@@ -19,6 +22,8 @@ export async function backupDatabase (instance: Instance, backupId: string, labe
     status: 'running',
     storage_type: 'local',
     label: label ?? 'Manual',
+    convex_version: convexVersion,
+    source_instance_name: instance.name,
   });
 
   try {
@@ -89,6 +94,9 @@ export async function backupDatabase (instance: Instance, backupId: string, labe
 
 export async function backupVolume (instance: Instance, backupId: string, label?: string): Promise<{ success: boolean; filePath?: string; error?: string }>
 {
+  // Get detected version from instance metadata
+  const convexVersion = instance.detected_version || instance.pinned_version || 'unknown';
+
   const history = createBackupHistory({
     id: backupId,
     instance_id: instance.id,
@@ -96,6 +104,8 @@ export async function backupVolume (instance: Instance, backupId: string, label?
     status: 'running',
     storage_type: 'local',
     label: label ?? 'Manual',
+    convex_version: convexVersion,
+    source_instance_name: instance.name,
   });
 
   try {
