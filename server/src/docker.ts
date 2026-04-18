@@ -318,6 +318,24 @@ function demuxStream(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 export async function startInstance(instance: Instance): Promise<void> {
+  // Check if containers exist before trying to start them
+  // If they don't exist, recreate them using createAndStartInstance
+  const containersExist = await Promise.all([
+    instance.postgres_container_id ? docker.getContainer(instance.postgres_container_id).inspect().catch(() => null) : null,
+    instance.backend_container_id ? docker.getContainer(instance.backend_container_id).inspect().catch(() => null) : null,
+    instance.dashboard_container_id ? docker.getContainer(instance.dashboard_container_id).inspect().catch(() => null) : null,
+  ]);
+
+  const allExist = containersExist.every(c => c !== null);
+
+  if (!allExist) {
+    // Some containers are missing, recreate the entire instance
+    console.log(`Instance ${instance.name} has missing containers, recreating...`);
+    await createAndStartInstance(instance);
+    return;
+  }
+
+  // All containers exist, start them
   if (instance.postgres_container_id) {
     const container = docker.getContainer(instance.postgres_container_id);
     await container.start();
