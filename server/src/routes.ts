@@ -613,10 +613,10 @@ router.post('/version/update', async (_req: Request, res: Response) =>
   // plugin from the image, and installs git on the fly.
   const script = [
     'set -eu',
-    'apk add --no-cache git openssh-client >/dev/null',
-    'mkdir -p /root/.ssh',
-    'ssh-keyscan github.com >> /root/.ssh/known_hosts 2>/dev/null',
+    'apk add --no-cache git >/dev/null',
     'cd /repo',
+    'echo "[updater] changing git remote to HTTPS"',
+    'git remote set-url origin https://github.com/malipetek/convexer.git',
     'echo "[updater] git fetch"',
     'git fetch origin',
     `git checkout ${branch}`,
@@ -658,7 +658,6 @@ router.post('/version/update', async (_req: Request, res: Response) =>
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
           `${hostProjectPath}:/repo`,
-          'convexer-ssh:/root/.ssh',
         ],
       },
       Labels: { 'convexer.role': 'updater' },
