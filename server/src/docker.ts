@@ -11,7 +11,8 @@ const NETWORK_NAME = 'convexer-net';
 const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
 const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
 const POSTGRES_IMAGE = 'postgres:16-alpine';
-const BETTERAUTH_IMAGE = 'ghcr.io/better-auth/better-auth:latest';
+// Better Auth is a library, not a standalone Docker service
+// const BETTERAUTH_IMAGE = 'ghcr.io/better-auth/better-auth:latest';
 
 export async function ensureImages(): Promise<void> {
   for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE, POSTGRES_IMAGE]) {
@@ -417,17 +418,6 @@ export async function syncInstanceStatuses(): Promise<void> {
       }
     }
 
-    let betterAuthRunning = false;
-    if (instance.betterauth_enabled && instance.betterauth_container_id) {
-      try {
-        const container = docker.getContainer(instance.betterauth_container_id);
-        const info = await container.inspect();
-        betterAuthRunning = info.State.Running;
-      } catch (err: any) {
-        if (err.statusCode !== 404) console.warn(`Failed to check BetterAuth status for ${instance.name}:`, err.message);
-      }
-    }
-
     const newStatus = backendRunning ? 'running' : 'stopped';
     if (instance.status !== newStatus) {
       updateInstance(instance.id, { status: newStatus });
@@ -435,80 +425,5 @@ export async function syncInstanceStatuses(): Promise<void> {
   }
 }
 
-export async function createBetterAuthContainer (instance: Instance): Promise<void>
-{
-  const betterAuthSecret = crypto.randomBytes(32).toString('hex');
-  const siteUrl = (() =>
-  {
-    try {
-      const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-      return env.SITE_DOMAIN || `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
-    } catch {
-      return `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
-    }
-  })();
-
-  const betterAuthEnv = [
-    `BETTER_AUTH_SECRET=${betterAuthSecret}`,
-    `BETTER_AUTH_URL=${siteUrl}`,
-  ];
-
-  if (instance.extra_env) {
-    try {
-      const extra = JSON.parse(instance.extra_env);
-      for (const [key, value] of Object.entries(extra)) {
-        if (key.startsWith('BETTER_AUTH_') && key !== 'BETTER_AUTH_SECRET') {
-          betterAuthEnv.push(`${key}=${value}`);
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to parse extra_env for BetterAuth:', err);
-    }
-  }
-
-  const container = await docker.createContainer({
-    Image: BETTERAUTH_IMAGE,
-    name: `convexer-betterauth-${instance.name}`,
-    ExposedPorts: { '6792/tcp': {} },
-    HostConfig: {
-      PortBindings: {
-        '6792/tcp': [{ HostPort: String(instance.betterauth_port) }],
-      },
-      RestartPolicy: { Name: 'unless-stopped' },
-      ExtraHosts: process.platform === 'linux' ? ['host.docker.internal:host-gateway'] : [],
-    },
-    Env: betterAuthEnv,
-  });
-
-  await container.start();
-
-  try {
-    const network = docker.getNetwork(NETWORK_NAME);
-    await network.connect({ Container: container.id });
-  } catch (err: any) {
-    console.warn(`Failed to connect BetterAuth to network:`, err.message);
-  }
-
-  updateInstance(instance.id, {
-    betterauth_container_id: container.id,
-    betterauth_enabled: 1,
-  });
-}
-
-export async function removeBetterAuthContainer (instance: Instance): Promise<void>
-{
-  if (!instance.betterauth_container_id) return;
-
-  try {
-    const container = docker.getContainer(instance.betterauth_container_id);
-    await container.stop({ t: 10 });
-    await container.remove();
-  } catch (err: any) {
-    if (err.statusCode !== 404) console.warn(`Failed to remove BetterAuth container for ${instance.name}:`, err.message);
-  }
-
-  updateInstance(instance.id, {
-    betterauth_container_id: null,
-    betterauth_enabled: 0,
-  });
-}
+// Better Auth is a library, not a standalone Docker service
+// Container support not available

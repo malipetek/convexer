@@ -37,9 +37,7 @@ import
   removeInstance,
   syncInstanceStatuses,
   getContainerLogs,
-  ensureImages,
-  createBetterAuthContainer,
-  removeBetterAuthContainer
+  ensureImages
 } from './docker.js';
 import
 {
@@ -200,9 +198,6 @@ router.post('/instances', (req: Request, res: Response) => {
     detected_version: null,
     health_check_timeout: 300000,
     postgres_health_check_timeout: 60000,
-    betterauth_enabled: 0,
-    betterauth_container_id: null,
-    betterauth_port: 6792,
   });
 
   // Start creation in background
@@ -507,52 +502,6 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
     });
   } catch (err: any) {
     console.error('Upgrade failed:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Enable BetterAuth for instance
-router.post('/instances/:id/betterauth/enable', async (req: Request, res: Response) =>
-{
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-
-  if (instance.betterauth_enabled) {
-    res.status(400).json({ error: 'BetterAuth is already enabled for this instance' });
-    return;
-  }
-
-  try {
-    await createBetterAuthContainer(instance);
-    res.json({ success: true, message: 'BetterAuth container started' });
-  } catch (err: any) {
-    console.error('Failed to start BetterAuth container:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Disable BetterAuth for instance
-router.post('/instances/:id/betterauth/disable', async (req: Request, res: Response) =>
-{
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-
-  if (!instance.betterauth_enabled) {
-    res.status(400).json({ error: 'BetterAuth is not enabled for this instance' });
-    return;
-  }
-
-  try {
-    await removeBetterAuthContainer(instance);
-    res.json({ success: true, message: 'BetterAuth container stopped and removed' });
-  } catch (err: any) {
-    console.error('Failed to remove BetterAuth container:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1935,9 +1884,6 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       detected_version: null,
       health_check_timeout: sourceInstance.health_check_timeout || 300000,
       postgres_health_check_timeout: sourceInstance.postgres_health_check_timeout || 60000,
-      betterauth_enabled: 0,
-      betterauth_container_id: null,
-      betterauth_port: 6792,
     });
 
     // Create and start new instance; restore DB + volume after postgres is ready but before backend starts

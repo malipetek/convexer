@@ -672,7 +672,6 @@ function InstanceSettings ({ instance }: { instance: any })
   });
   const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
   const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
-  const [betterAuthEnabled, setBetterAuthEnabled] = useState(instance.betterauth_enabled === 1);
 
   const handleSave = async () => {
     setSaving(true);
@@ -701,20 +700,6 @@ function InstanceSettings ({ instance }: { instance: any })
 
   const handleSwitchChange = (key: string, checked: boolean, trueValue: string = 'true') => {
     handleChange(key, checked ? trueValue : '');
-  };
-
-  const handleBetterAuthToggle = async (checked: boolean) =>
-  {
-    try {
-      if (checked) {
-        await api.enableBetterAuth(instance.id);
-      } else {
-        await api.disableBetterAuth(instance.id);
-      }
-      setBetterAuthEnabled(checked);
-    } catch (err: any) {
-      alert(err.message || 'Failed to update BetterAuth');
-    }
   };
 
   return (
@@ -839,41 +824,6 @@ function InstanceSettings ({ instance }: { instance: any })
               Maximum time to wait for PostgreSQL to become ready (default: 60000ms / 1 minute)
             </p>
           </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">BetterAuth Container</div>
-              <div className="text-xs text-muted-foreground">Enable optional BetterAuth container for authentication</div>
-            </div>
-            <Switch
-              checked={betterAuthEnabled}
-              onCheckedChange={handleBetterAuthToggle}
-            />
-          </div>
-
-          {betterAuthEnabled && (
-            <div className="space-y-2">
-              <Label htmlFor="better-auth-url">BETTER_AUTH_URL (auto-set from SITE_DOMAIN)</Label>
-              <Input
-                id="better-auth-url"
-                type="text"
-                value={(() =>
-                {
-                  try {
-                    const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                    return env.SITE_DOMAIN || `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
-                  } catch {
-                    return `https://${instance.name}-site.${process.env.DOMAIN || 'convexer.example.com'}`;
-                  }
-                })()}
-                disabled
-                className="bg-muted"
-              />
-              <p className="text-xs text-muted-foreground">
-                Automatically set from SITE_DOMAIN. Add custom BETTER_AUTH_* variables in custom environment variables below.
-              </p>
-            </div>
-          )}
 
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save & Restart Backend'}

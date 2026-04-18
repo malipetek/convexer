@@ -70,10 +70,7 @@ const metadataColumns = [
   'pinned_version TEXT',
   'detected_version TEXT',
   'health_check_timeout INTEGER DEFAULT 300000',
-  'postgres_health_check_timeout INTEGER DEFAULT 60000',
-  'betterauth_enabled INTEGER DEFAULT 0',
-  'betterauth_container_id TEXT',
-  'betterauth_port INTEGER DEFAULT 6792'
+  'postgres_health_check_timeout INTEGER DEFAULT 60000'
 ];
 
 for (const columnDef of metadataColumns) {
@@ -272,8 +269,7 @@ export function updateInstance(id: string, updates: Partial<Instance>): Instance
   const allowed = [
     'status', 'backend_container_id', 'dashboard_container_id', 'postgres_container_id',
     'admin_key', 'error_message', 'extra_env', 'postgres_password',
-    'pinned_version', 'detected_version', 'health_check_timeout', 'postgres_health_check_timeout',
-    'betterauth_enabled', 'betterauth_container_id', 'betterauth_port'
+    'pinned_version', 'detected_version', 'health_check_timeout', 'postgres_health_check_timeout'
   ];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (fields.length === 0) return getInstance(id);

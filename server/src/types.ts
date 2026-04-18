@@ -21,9 +21,6 @@ export interface Instance {
   detected_version: string | null;
   health_check_timeout: number;
   postgres_health_check_timeout: number;
-  betterauth_enabled: number;
-  betterauth_container_id: string | null;
-  betterauth_port: number;
   created_at: string;
   updated_at: string;
 }

@@ -103,14 +103,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ targetVersion }),
     }),
-  enableBetterAuth: (id: string) =>
-    request<{ success: boolean; message: string }>(`/instances/${id}/betterauth/enable`, {
-      method: 'POST',
-    }),
-  disableBetterAuth: (id: string) =>
-    request<{ success: boolean; message: string }>(`/instances/${id}/betterauth/disable`, {
-      method: 'POST',
-    }),
   getStats: (id: string) =>
     request<InstanceStats>(`/instances/${id}/stats`),
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),
