@@ -623,8 +623,10 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     `git pull origin ${branch}`,
     'echo "[updater] docker compose build"',
     'docker compose build --no-cache',
-    'echo "[updater] docker compose up -d --force-recreate"',
-    'docker compose up -d --force-recreate',
+    'echo "[updater] docker compose down"',
+    'docker compose down',
+    'echo "[updater] docker compose up -d"',
+    'docker compose up -d',
     'echo "[updater] done"',
   ].join(' && ');
 
@@ -654,7 +656,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
       WorkingDir: '/repo',
       Tty: false,
       HostConfig: {
-        AutoRemove: false,
+        AutoRemove: true,
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
           `${hostProjectPath}:/repo`,
