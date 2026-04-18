@@ -5,7 +5,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -308,6 +309,8 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [updateLogs, setUpdateLogs] = useState<string[]>([]);
+  const [showLogsDialog, setShowLogsDialog] = useState(false);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -356,31 +359,39 @@ export default function Settings() {
     {
       // Start the update
       await api.updateApp();
+      setShowLogsDialog(true);
+      setUpdateLogs(['Update started...']);
 
-      // Poll the status endpoint until completion
+      // Poll the logs and status endpoints until completion
       let apiDownCount = 0;
       const pollInterval = setInterval(async () =>
       {
         try {
+          // Fetch logs
+          const logsData = await fetch('/api/version/update/logs').then(res => res.json()).catch(() => ({ logs: '' }));
+          if (logsData.logs && logsData.logs !== '') {
+            setUpdateLogs(prev => [...prev, logsData.logs]);
+          }
+
           const status = await api.getUpdateStatus();
           apiDownCount = 0; // Reset counter on successful poll
 
           if (!status.running && status.success !== null) {
             clearInterval(pollInterval);
+            setUpdateLogs(prev => [...prev, status.success ? 'Update completed successfully!' : 'Update failed.']);
             if (status.success) {
               queryClient.invalidateQueries({ queryKey: ['version'] });
-              alert('Update successful! The app will reload.');
-              setTimeout(() => window.location.reload(), 2000);
+              setTimeout(() => window.location.reload(), 3000);
             } else {
-              alert('Update failed. Check server logs for details.');
+              setUpdating(false);
             }
-            setUpdating(false);
           }
         } catch (err) {
           apiDownCount++;
           // If API is down for more than 10 consecutive polls (20 seconds), wait for it to come back
           if (apiDownCount > 10) {
             clearInterval(pollInterval);
+            setUpdateLogs(prev => [...prev, 'API is down during update. Waiting for it to come back up...']);
             // Wait for API to come back up
             const retryInterval = setInterval(async () =>
             {
@@ -392,12 +403,12 @@ export default function Settings() {
                 const currentVersion = versionData.current_version;
                 // If the version changed, the update succeeded
                 if (currentVersion !== '1.0.36') {
-                  alert('Update successful! The app will reload.');
-                  setTimeout(() => window.location.reload(), 2000);
+                  setUpdateLogs(prev => [...prev, 'Update successful! Reloading...']);
+                  setTimeout(() => window.location.reload(), 3000);
                 } else {
-                  alert('Update failed. Check server logs for details.');
+                  setUpdateLogs(prev => [...prev, 'Update failed.']);
+                  setUpdating(false);
                 }
-                setUpdating(false);
               } catch (retryErr) {
                 // API still down, keep waiting
               }
@@ -408,7 +419,7 @@ export default function Settings() {
     },
     onError: (err: any) =>
     {
-      alert(err.message || 'Update failed');
+      setUpdateLogs(prev => [...prev, `Update failed: ${err.message}`]);
       setUpdating(false);
     },
   });
@@ -563,11 +574,41 @@ export default function Settings() {
                       {updating || updateMutation.isPending ? 'Updating...' : 'Update Now'}
                     </Button>
                   )}
+                  {updating && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowLogsDialog(true)}
+                    >
+                      View Logs
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
+
+        <Dialog open={showLogsDialog} onOpenChange={setShowLogsDialog}>
+          <DialogContent className="max-w-4xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Update Logs</DialogTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-4 top-4"
+                onClick={() => setShowLogsDialog(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogHeader>
+            <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-md overflow-y-auto max-h-[60vh] whitespace-pre-wrap">
+              {updateLogs.map((log, idx) => (
+                <div key={idx}>{log}</div>
+              ))}
+              {updating && <div className="animate-pulse">_</div>}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
