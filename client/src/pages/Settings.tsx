@@ -352,16 +352,39 @@ export default function Settings() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: () => api.updateApp(),
-    onSuccess: () =>
+    mutationFn: async () =>
     {
-      queryClient.invalidateQueries({ queryKey: ['version'] });
-      alert('Update successful! The app will reload.');
-      setTimeout(() => window.location.reload(), 2000);
+      // Start the update
+      await api.updateApp();
+
+      // Poll the status endpoint until completion
+      const pollInterval = setInterval(async () =>
+      {
+        try {
+          const status = await api.getUpdateStatus();
+
+          if (!status.running && status.success !== null) {
+            clearInterval(pollInterval);
+            if (status.success) {
+              queryClient.invalidateQueries({ queryKey: ['version'] });
+              alert('Update successful! The app will reload.');
+              setTimeout(() => window.location.reload(), 2000);
+            } else {
+              alert('Update failed. Check server logs for details.');
+            }
+            setUpdating(false);
+          }
+        } catch (err) {
+          clearInterval(pollInterval);
+          alert('Failed to check update status.');
+          setUpdating(false);
+        }
+      }, 2000);
     },
     onError: (err: any) =>
     {
       alert(err.message || 'Update failed');
+      setUpdating(false);
     },
   });
 
