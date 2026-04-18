@@ -799,11 +799,6 @@ function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, 
             </Select>
           </div>
 
-          <DestinationSection
-            backupConfig={backupConfig}
-            setBackupConfig={setBackupConfig}
-          />
-
           <Button
             onClick={() =>
             {
@@ -814,6 +809,21 @@ function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, 
           >
             {savingBackup ? 'Saving...' : 'Save Backup Configuration'}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            Remote Backup Destination
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DestinationSection
+            backupConfig={backupConfig}
+            setBackupConfig={setBackupConfig}
+          />
         </CardContent>
       </Card>
     </>
