@@ -311,6 +311,9 @@ export default function Settings() {
   const [updating, setUpdating] = useState(false);
   const [updateLogs, setUpdateLogs] = useState<string[]>([]);
   const [showLogsDialog, setShowLogsDialog] = useState(false);
+  const [showSavedLogsDialog, setShowSavedLogsDialog] = useState(false);
+  const [savedLogs, setSavedLogs] = useState('');
+  const [rollingBack, setRollingBack] = useState(false);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -340,6 +343,12 @@ export default function Settings() {
     },
     refetchOnWindowFocus: false,
     staleTime: 60_000,
+  });
+
+  const { data: rollbackStatus } = useQuery({
+    queryKey: ['rollback-status'],
+    queryFn: () => api.getRollbackStatus(),
+    refetchOnWindowFocus: false,
   });
 
   const saveSettingsMutation = useMutation({
@@ -454,6 +463,33 @@ export default function Settings() {
     }
   };
 
+  const handleViewSavedLogs = async () =>
+  {
+    try {
+      const data = await api.getSavedUpdateLogs();
+      setSavedLogs(data.logs);
+      setShowSavedLogsDialog(true);
+    } catch (err: any) {
+      alert(err.message || 'Failed to fetch saved logs');
+    }
+  };
+
+  const handleRollback = async () =>
+  {
+    if (!rollbackStatus?.commit) return;
+    if (confirm(`This will rollback to commit ${rollbackStatus.commit.slice(0, 7)}. The server will restart. Continue?`)) {
+      setRollingBack(true);
+      try {
+        await api.rollback();
+        alert('Rollback started. The server will restart shortly.');
+        setTimeout(() => window.location.reload(), 5000);
+      } catch (err: any) {
+        alert(err.message || 'Rollback failed');
+        setRollingBack(false);
+      }
+    }
+  };
+
   return (
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
@@ -556,7 +592,7 @@ export default function Settings() {
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button
                     variant="outline"
                     onClick={handleCheckUpdate}
@@ -580,6 +616,21 @@ export default function Settings() {
                       onClick={() => setShowLogsDialog(true)}
                     >
                       View Logs
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={handleViewSavedLogs}
+                  >
+                    View Last Update Logs
+                  </Button>
+                  {rollbackStatus?.available && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleRollback}
+                      disabled={rollingBack}
+                    >
+                      Rollback to Previous Version
                     </Button>
                   )}
                 </div>
@@ -606,6 +657,25 @@ export default function Settings() {
                 <div key={idx}>{log}</div>
               ))}
               {updating && <div className="animate-pulse">_</div>}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showSavedLogsDialog} onOpenChange={setShowSavedLogsDialog}>
+          <DialogContent className="max-w-4xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Last Update Logs</DialogTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-4 top-4"
+                onClick={() => setShowSavedLogsDialog(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogHeader>
+            <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-md overflow-y-auto max-h-[60vh] whitespace-pre-wrap">
+              {savedLogs || 'No saved logs available.'}
             </div>
           </DialogContent>
         </Dialog>

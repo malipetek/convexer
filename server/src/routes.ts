@@ -615,6 +615,8 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     'set -eu',
     'apk add --no-cache git >/dev/null',
     'cd /repo',
+    'echo "[updater] saving current commit for rollback"',
+    'git rev-parse HEAD > /repo/server/data/.rollback_commit || true',
     'echo "[updater] changing git remote to HTTPS"',
     'git remote set-url origin https://github.com/malipetek/convexer.git',
     'echo "[updater] git fetch"',
@@ -626,7 +628,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     'echo "[updater] docker rmi repo-convexer:latest"',
     'docker rmi repo-convexer:latest || true',
     'echo "[updater] docker compose build"',
-    'docker compose -p convexer build --no-cache',
+    'docker compose -p convexer build --no-cache 2>&1 | tee /repo/server/data/.update_logs',
     'echo "[updater] docker compose up -d"',
     'docker compose -p convexer up -d',
     'echo "[updater] done"',
@@ -739,6 +741,130 @@ router.get('/version/update/status', async (_req: Request, res: Response) =>
 
     res.json({ running: false, success, exitCode });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get saved update logs
+router.get('/version/update/logs/saved', async (_req: Request, res: Response) =>
+{
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const dataDir = process.env.DATA_DIR || '/app/server/data';
+    const logsPath = path.join(dataDir, '.update_logs');
+
+    if (fs.existsSync(logsPath)) {
+      const logs = fs.readFileSync(logsPath, 'utf-8');
+      res.json({ logs, exists: true });
+    } else {
+      res.json({ logs: '', exists: false });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check if rollback is available
+router.get('/version/rollback/status', async (_req: Request, res: Response) =>
+{
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const dataDir = process.env.DATA_DIR || '/app/server/data';
+    const rollbackCommitPath = path.join(dataDir, '.rollback_commit');
+
+    if (fs.existsSync(rollbackCommitPath)) {
+      const rollbackCommit = fs.readFileSync(rollbackCommitPath, 'utf-8').trim();
+      res.json({ available: true, commit: rollbackCommit });
+    } else {
+      res.json({ available: false, commit: null });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Perform rollback to previous version
+router.post('/version/rollback', async (_req: Request, res: Response) =>
+{
+  try {
+    const hostProjectPath = process.env.HOST_PROJECT_PATH || '/home/convexer';
+    const branch = process.env.UPDATE_BRANCH || 'main';
+    const updaterImage = process.env.UPDATER_IMAGE || 'docker:27-cli';
+
+    const fs = await import('fs');
+    const path = await import('path');
+    const dataDir = process.env.DATA_DIR || '/app/server/data';
+    const rollbackCommitPath = path.join(dataDir, '.rollback_commit');
+
+    if (!fs.existsSync(rollbackCommitPath)) {
+      res.status(400).json({ error: 'No rollback commit found' });
+      return;
+    }
+
+    const rollbackCommit = fs.readFileSync(rollbackCommitPath, 'utf-8').trim();
+
+    // Script to rollback to previous commit
+    const script = [
+      'set -eu',
+      'apk add --no-cache git >/dev/null',
+      'cd /repo',
+      'echo "[rollback] checking out previous commit"',
+      `git checkout ${rollbackCommit}`,
+      'echo "[rollback] docker compose down"',
+      'docker compose -p convexer down',
+      'echo "[rollback] docker rmi repo-convexer:latest"',
+      'docker rmi repo-convexer:latest || true',
+      'echo "[rollback] docker compose build"',
+      'docker compose -p convexer build --no-cache 2>&1 | tee /repo/server/data/.rollback_logs',
+      'echo "[rollback] docker compose up -d"',
+      'docker compose -p convexer up -d',
+      'echo "[rollback] removing rollback commit file"',
+      'rm /repo/server/data/.rollback_commit',
+      'echo "[rollback] done"',
+    ].join(' && ');
+
+    // Pull the updater image
+    const images = await docker.listImages({ filters: JSON.stringify({ reference: [updaterImage] }) });
+    if (images.length === 0) {
+      console.log(`[rollback] Pulling ${updaterImage}...`);
+      await new Promise<void>((resolve, reject) =>
+      {
+        docker.pull(updaterImage, (err: any, stream: NodeJS.ReadableStream) =>
+        {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (pErr: any) => pErr ? reject(pErr) : resolve());
+        });
+      });
+      console.log(`[rollback] Pulled ${updaterImage}.`);
+    }
+
+    const container = await docker.createContainer({
+      Image: updaterImage,
+      Cmd: ['sh', '-c', script],
+      WorkingDir: '/repo',
+      Tty: false,
+      HostConfig: {
+        AutoRemove: true,
+        Binds: [
+          '/var/run/docker.sock:/var/run/docker.sock',
+          `${hostProjectPath}:/repo`,
+        ],
+      },
+      Labels: { 'convexer.role': 'updater' },
+    });
+
+    await container.start();
+    console.log(`[rollback] Rollback container ${container.id.slice(0, 12)} started.`);
+
+    res.status(202).json({
+      success: true,
+      message: 'Rollback started. The server will restart shortly.',
+      updater_container_id: container.id,
+    });
+  } catch (err: any) {
+    console.error('[rollback] Failed to start rollback:', err);
     res.status(500).json({ error: err.message });
   }
 });

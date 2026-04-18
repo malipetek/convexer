@@ -99,6 +99,9 @@ export const api = {
   checkUpdate: () => request<{ current_version: string; latest_version: string; has_update: boolean }>('/version/check'),
   updateApp: () => request<{ success: boolean }>('/version/update', { method: 'POST' }),
   getUpdateStatus: () => request<{ running: boolean; success: boolean | null; exitCode?: number }>('/version/update/status'),
+  getSavedUpdateLogs: () => request<{ logs: string; exists: boolean }>('/version/update/logs/saved'),
+  getRollbackStatus: () => request<{ available: boolean; commit: string | null }>('/version/rollback/status'),
+  rollback: () => request<{ success: boolean; message: string; updater_container_id: string }>('/version/rollback', { method: 'POST' }),
   getSettings: () => request<{ hostname: string }>('/settings'),
   saveSettings: (hostname: string) => request<{ success: boolean; hostname: string }>('/settings', {
     method: 'POST',
