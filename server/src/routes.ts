@@ -658,7 +658,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
       WorkingDir: '/repo',
       Tty: false,
       HostConfig: {
-        AutoRemove: false,
+        AutoRemove: true,
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
           `${hostProjectPath}:/repo`,
@@ -670,10 +670,33 @@ router.post('/version/update', async (_req: Request, res: Response) =>
     await container.start();
     console.log(`[update] Updater container ${container.id.slice(0, 12)} started.`);
 
-    res.status(202).json({
+    // Wait for the container to complete
+    await container.wait();
+
+    // Check the exit status
+    const containerInfo = await container.inspect();
+    const exitCode = containerInfo.State.ExitCode;
+
+    console.log(`[update] Updater container exited with code ${exitCode}`);
+
+    // Clean up the container
+    await container.remove();
+
+    if (exitCode !== 0) {
+      console.error('[update] Update failed');
+      res.status(500).json({
+        success: false,
+        error: 'Update failed. Check server logs for details.',
+      });
+      return;
+    }
+
+    // Wait a moment for the new containers to start
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    res.status(200).json({
       success: true,
-      message: 'Update started. The server will restart shortly.',
-      updater_container_id: container.id,
+      message: 'Update completed successfully.',
     });
   } catch (err: any) {
     console.error('[update] Failed to start updater:', err);
