@@ -185,7 +185,7 @@ db.exec(`
 try {
   const destCols = (db.prepare("PRAGMA table_info(backup_destinations)").all() as any[]).map((c: any) => c.name);
   if (destCols.length > 0) {
-    const configs = db.prepare('SELECT id, instance_id, destination_type, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint FROM backup_configs WHERE destination_type IS NOT NULL AND destination_type != "local"').all() as any[];
+    const configs = db.prepare("SELECT id, instance_id, destination_type, remote_subfolder, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint FROM backup_configs WHERE destination_type IS NOT NULL AND destination_type != 'local'").all() as any[];
     for (const config of configs) {
       const existing = db.prepare('SELECT id FROM backup_destinations WHERE instance_id = ? AND destination_type = ?').get(config.instance_id, config.destination_type);
       if (!existing) {
