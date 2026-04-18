@@ -358,10 +358,12 @@ export default function Settings() {
       await api.updateApp();
 
       // Poll the status endpoint until completion
+      let apiDownCount = 0;
       const pollInterval = setInterval(async () =>
       {
         try {
           const status = await api.getUpdateStatus();
+          apiDownCount = 0; // Reset counter on successful poll
 
           if (!status.running && status.success !== null) {
             clearInterval(pollInterval);
@@ -375,9 +377,32 @@ export default function Settings() {
             setUpdating(false);
           }
         } catch (err) {
-          clearInterval(pollInterval);
-          alert('Failed to check update status.');
-          setUpdating(false);
+          apiDownCount++;
+          // If API is down for more than 10 consecutive polls (20 seconds), wait for it to come back
+          if (apiDownCount > 10) {
+            clearInterval(pollInterval);
+            // Wait for API to come back up
+            const retryInterval = setInterval(async () =>
+            {
+              try {
+                await api.getVersion();
+                clearInterval(retryInterval);
+                // API is back up, check if update succeeded by comparing versions
+                const versionData = await api.getVersion();
+                const currentVersion = versionData.current_version;
+                // If the version changed, the update succeeded
+                if (currentVersion !== '1.0.36') {
+                  alert('Update successful! The app will reload.');
+                  setTimeout(() => window.location.reload(), 2000);
+                } else {
+                  alert('Update failed. Check server logs for details.');
+                }
+                setUpdating(false);
+              } catch (retryErr) {
+                // API still down, keep waiting
+              }
+            }, 3000);
+          }
         }
       }, 2000);
     },
