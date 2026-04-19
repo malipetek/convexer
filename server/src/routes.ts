@@ -1909,4 +1909,48 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
   }
 });
 
+// Monitoring stack status
+router.get('/monitoring/status', async (_req: Request, res: Response) =>
+{
+  const domain = process.env.DOMAIN || '';
+  const umamiUrl = domain ? `http://umami.${domain}` : 'http://localhost:3000';
+  const glitchtipUrl = domain ? `http://glitchtip.${domain}` : 'http://localhost:8000';
+
+  const containers = [
+    { key: 'umami', name: 'convexer-umami' },
+    { key: 'umami_db', name: 'convexer-umami-db' },
+    { key: 'glitchtip_web', name: 'convexer-glitchtip-web' },
+    { key: 'glitchtip_worker', name: 'convexer-glitchtip-worker' },
+    { key: 'glitchtip_db', name: 'convexer-glitchtip-db' },
+    { key: 'glitchtip_redis', name: 'convexer-glitchtip-redis' },
+  ];
+
+  const statuses: Record<string, { running: boolean; status: string }> = {};
+  for (const { key, name } of containers) {
+    try {
+      const info = await docker.getContainer(name).inspect();
+      statuses[key] = { running: info.State.Running, status: info.State.Status };
+    } catch {
+      statuses[key] = { running: false, status: 'not found' };
+    }
+  }
+
+  res.json({
+    umami: {
+      url: umamiUrl,
+      running: statuses.umami.running,
+      status: statuses.umami.status,
+      db_status: statuses.umami_db.status,
+    },
+    glitchtip: {
+      url: glitchtipUrl,
+      running: statuses.glitchtip_web.running,
+      status: statuses.glitchtip_web.status,
+      worker_status: statuses.glitchtip_worker.status,
+      db_status: statuses.glitchtip_db.status,
+      redis_status: statuses.glitchtip_redis.status,
+    },
+  });
+});
+
 export default router;

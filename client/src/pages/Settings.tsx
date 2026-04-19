@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, X } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, X, BarChart2, Bug, ExternalLink } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -315,6 +315,12 @@ export default function Settings() {
   const [savedLogs, setSavedLogs] = useState('');
   const [rollingBack, setRollingBack] = useState(false);
 
+  const { data: monitoringStatus, isLoading: monitoringLoading, refetch: refetchMonitoring } = useQuery({
+    queryKey: ['monitoringStatus'],
+    queryFn: () => api.getMonitoringStatus(),
+    refetchInterval: 15000,
+  });
+
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
@@ -522,6 +528,10 @@ export default function Settings() {
                 <Badge variant="default" className="ml-2 h-5 px-1.5 text-[10px]">new</Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="monitoring">
+              <BarChart2 className="h-4 w-4 mr-2" />
+              Monitoring
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-0">
@@ -549,6 +559,132 @@ export default function Settings() {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="monitoring" className="mt-0">
+            <div className="space-y-4">
+              {/* Umami */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <BarChart2 className="h-5 w-5" />
+                      Umami — Analytics
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {monitoringLoading ? (
+                        <Badge variant="secondary">checking...</Badge>
+                      ) : monitoringStatus?.umami.running ? (
+                        <Badge className="bg-green-600">running</Badge>
+                      ) : (
+                        <Badge variant="destructive">{monitoringStatus?.umami.status ?? 'not found'}</Badge>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => refetchMonitoring()}>
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={monitoringStatus?.umami.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:underline font-mono text-sm flex items-center gap-1"
+                    >
+                      {monitoringStatus?.umami.url ?? 'http://umami.<domain>'}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">App</span>
+                      <div className="font-mono">{monitoringStatus?.umami.status ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">Database</span>
+                      <div className="font-mono">{monitoringStatus?.umami.db_status ?? '—'}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Default login: <span className="font-mono">admin / umami</span> — change immediately after first login.
+                    Create one Website per app, use the tracking script or API with the website ID.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* GlitchTip */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Bug className="h-5 w-5" />
+                      GlitchTip — Error Tracking
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {monitoringLoading ? (
+                        <Badge variant="secondary">checking...</Badge>
+                      ) : monitoringStatus?.glitchtip.running ? (
+                        <Badge className="bg-green-600">running</Badge>
+                      ) : (
+                        <Badge variant="destructive">{monitoringStatus?.glitchtip.status ?? 'not found'}</Badge>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => refetchMonitoring()}>
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={monitoringStatus?.glitchtip.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:underline font-mono text-sm flex items-center gap-1"
+                    >
+                      {monitoringStatus?.glitchtip.url ?? 'http://glitchtip.<domain>'}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">Web</span>
+                      <div className="font-mono">{monitoringStatus?.glitchtip.status ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">Worker</span>
+                      <div className="font-mono">{monitoringStatus?.glitchtip.worker_status ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">Database</span>
+                      <div className="font-mono">{monitoringStatus?.glitchtip.db_status ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">Redis</span>
+                      <div className="font-mono">{monitoringStatus?.glitchtip.redis_status ?? '—'}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Sentry-compatible — use any Sentry SDK with DSN from GlitchTip.
+                    Create an Organization, then one Project per app to get separate DSNs.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Setup note */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">SDK Integration</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <p><span className="font-semibold text-foreground">GlitchTip (React Native / mobile):</span> Install <span className="font-mono">@sentry/react-native</span>, set <span className="font-mono">dsn</span> to your GlitchTip project DSN.</p>
+                  <p><span className="font-semibold text-foreground">Umami (web / server):</span> Use the JS snippet or <span className="font-mono">@umami/node</span> with your Website ID for server-side event tracking.</p>
+                  <p className="text-xs">Both services are shared across all Convex instances — create separate projects/websites per app for clear separation.</p>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="server" className="mt-0">

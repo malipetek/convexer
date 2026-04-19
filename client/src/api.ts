@@ -238,6 +238,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   },
+  getMonitoringStatus: () => request<{
+    umami: { url: string; running: boolean; status: string; db_status: string };
+    glitchtip: { url: string; running: boolean; status: string; worker_status: string; db_status: string; redis_status: string };
+  }>('/monitoring/status'),
   duplicateInstance: (id: string, newName: string) => request<{ instance: any }>(`/instances/${id}/duplicate`, {
     method: 'POST',
     body: JSON.stringify({ newName }),

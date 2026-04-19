@@ -58,10 +58,102 @@ services:
     networks:
       - convexer-net
 
+  # ── Monitoring: Umami (analytics) ──────────────────────────────────────────
+  umami-db:
+    image: postgres:16-alpine
+    container_name: convexer-umami-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:-change_me_umami_db}
+    volumes:
+      - umami-db-data:/var/lib/postgresql/data
+    networks:
+      - convexer-net
+
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: convexer-umami
+    restart: unless-stopped
+    depends_on:
+      - umami-db
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-change_me_umami_db}@convexer-umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-change_me_umami_secret_32chars_min}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.umami.rule=Host(`umami.${DOMAIN:-malipetek.online}`)
+      - traefik.http.routers.umami.entrypoints=web
+      - traefik.http.services.umami.loadbalancer.server.port=3000
+    networks:
+      - convexer-net
+
+  # ── Monitoring: GlitchTip (error tracking) ──────────────────────────────────
+  glitchtip-db:
+    image: postgres:16-alpine
+    container_name: convexer-glitchtip-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: glitchtip
+      POSTGRES_USER: glitchtip
+      POSTGRES_PASSWORD: ${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}
+    volumes:
+      - glitchtip-db-data:/var/lib/postgresql/data
+    networks:
+      - convexer-net
+
+  glitchtip-redis:
+    image: redis:7-alpine
+    container_name: convexer-glitchtip-redis
+    restart: unless-stopped
+    networks:
+      - convexer-net
+
+  glitchtip-web:
+    image: glitchtip/glitchtip
+    container_name: convexer-glitchtip-web
+    restart: unless-stopped
+    depends_on:
+      - glitchtip-db
+      - glitchtip-redis
+    environment:
+      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@convexer-glitchtip-db:5432/glitchtip
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
+      REDIS_URL: redis://convexer-glitchtip-redis:6379/0
+      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
+      DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-errors@example.com}
+      EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.glitchtip.rule=Host(`glitchtip.${DOMAIN:-malipetek.online}`)
+      - traefik.http.routers.glitchtip.entrypoints=web
+      - traefik.http.services.glitchtip.loadbalancer.server.port=8000
+    networks:
+      - convexer-net
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip
+    container_name: convexer-glitchtip-worker
+    restart: unless-stopped
+    command: ./bin/run-celery-with-beat.sh
+    depends_on:
+      - glitchtip-db
+      - glitchtip-redis
+    environment:
+      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@convexer-glitchtip-db:5432/glitchtip
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
+      REDIS_URL: redis://convexer-glitchtip-redis:6379/0
+      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
+    networks:
+      - convexer-net
+
 volumes:
   convexer-data:
   convexer-ssh:
   convexer-backups:
+  umami-db-data:
+  glitchtip-db-data:
 
 networks:
   convexer-net:
