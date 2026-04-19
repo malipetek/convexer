@@ -47,8 +47,8 @@ try {
       email_verified BOOLEAN DEFAULT FALSE,
       name TEXT,
       image TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query(`
@@ -56,10 +56,10 @@ try {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       token TEXT UNIQUE NOT NULL,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
     )
   `);
   await pool.query(`
@@ -68,9 +68,9 @@ try {
       user_id TEXT NOT NULL,
       provider_id TEXT NOT NULL,
       account_id TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
     )
   `);
   console.log('Better Auth tables created/verified');
