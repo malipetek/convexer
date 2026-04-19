@@ -38,7 +38,7 @@ app.use('/api', (req, res, next) => {
   if (!isAuthEnabled()) return next();
   // Only these paths are public. Note: /version/update is intentionally NOT
   // public — it must only be callable by authenticated users.
-  const publicPaths = new Set(['/login', '/health', '/version', '/version/check', '/settings']);
+  const publicPaths = new Set(['/login', '/health', '/version', '/version/check', '/settings', '/version/update/logs']);
   if (publicPaths.has(req.path)) return next();
 
   const auth = req.headers.authorization;
