@@ -38,6 +38,47 @@ try {
   process.exit(1);
 }
 
+// Create Better Auth tables if they don't exist
+try {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      email_verified BOOLEAN DEFAULT FALSE,
+      name TEXT,
+      image TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    )
+  `);
+  console.log('Better Auth tables created/verified');
+} catch (err: any) {
+  console.error('Failed to create Better Auth tables:', err.message, err.stack);
+  process.exit(1);
+}
+
 const plugins: any[] = [];
 
 // Dynamically load @better-auth/infra if available
@@ -61,11 +102,10 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    // Temporarily disable database to test
-    // database: {
-    //   type: 'pg',
-    //   pool,
-    // },
+    database: {
+      type: 'pg',
+      pool,
+    },
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
@@ -74,7 +114,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully (without database)');
+  console.log('Better Auth initialized successfully');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
