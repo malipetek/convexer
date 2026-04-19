@@ -74,7 +74,7 @@ try {
         health_check_timeout INTEGER DEFAULT 300000,
         postgres_health_check_timeout INTEGER DEFAULT 60000
       );
-      INSERT INTO instances_new SELECT * FROM instances;
+      INSERT INTO instances_new (id, name, status, backend_container_id, dashboard_container_id, postgres_container_id, backend_port, site_proxy_port, dashboard_port, postgres_port, volume_name, postgres_volume_name, postgres_password, admin_key, instance_name, instance_secret, error_message, extra_env, created_at, updated_at, archived_at, betterauth_enabled, betterauth_container_id, betterauth_port, pinned_version, detected_version, health_check_timeout, postgres_health_check_timeout) SELECT id, name, status, backend_container_id, dashboard_container_id, postgres_container_id, backend_port, site_proxy_port, dashboard_port, postgres_port, volume_name, postgres_volume_name, postgres_password, admin_key, instance_name, instance_secret, error_message, extra_env, created_at, updated_at, archived_at, betterauth_enabled, betterauth_container_id, betterauth_port, pinned_version, detected_version, health_check_timeout, postgres_health_check_timeout FROM instances;
       DROP TABLE instances;
       ALTER TABLE instances_new RENAME TO instances;
       COMMIT;
