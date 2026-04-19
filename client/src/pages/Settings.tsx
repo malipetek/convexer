@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, X, BarChart2, Bug, ExternalLink } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -779,14 +779,6 @@ export default function Settings() {
           <DialogContent className="max-w-4xl max-h-[80vh]">
             <DialogHeader>
               <DialogTitle>Update Logs</DialogTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-4 top-4"
-                onClick={() => setShowLogsDialog(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
             </DialogHeader>
             <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-md overflow-y-auto max-h-[60vh] whitespace-pre-wrap">
               {updateLogs.map((log, idx) => (
@@ -801,14 +793,6 @@ export default function Settings() {
           <DialogContent className="max-w-4xl max-h-[80vh]">
             <DialogHeader>
               <DialogTitle>Last Update Logs</DialogTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-4 top-4"
-                onClick={() => setShowSavedLogsDialog(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
             </DialogHeader>
             <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-md overflow-y-auto max-h-[60vh] whitespace-pre-wrap">
               {savedLogs || 'No saved logs available.'}

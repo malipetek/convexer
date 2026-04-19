@@ -37,6 +37,7 @@ services:
       - convexer-data:/app/server/data
       - convexer-ssh:/root/.ssh
       - convexer-backups:/app/server/data/backups
+      - ${HOST_PROJECT_PATH:-/home/convexer}/server/data:/app/host-data:ro
     environment:
       - DATA_DIR=/app/server/data
       - DOMAIN=${DOMAIN:-malipetek.online}

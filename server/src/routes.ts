@@ -926,14 +926,21 @@ router.get('/version/update/logs/saved', async (_req: Request, res: Response) =>
     const fs = await import('fs');
     const path = await import('path');
     const dataDir = process.env.DATA_DIR || '/app/server/data';
-    const logsPath = path.join(dataDir, '.update_logs');
+    // Prefer host-data mount (where the updater container actually writes),
+    // fall back to DATA_DIR for backwards-compat.
+    const candidates = [
+      '/app/host-data/.update_logs',
+      path.join(dataDir, '.update_logs'),
+    ];
 
-    if (fs.existsSync(logsPath)) {
-      const logs = fs.readFileSync(logsPath, 'utf-8');
-      res.json({ logs, exists: true });
-    } else {
-      res.json({ logs: '', exists: false });
+    for (const logsPath of candidates) {
+      if (fs.existsSync(logsPath)) {
+        const logs = fs.readFileSync(logsPath, 'utf-8');
+        res.json({ logs, exists: true });
+        return;
+      }
     }
+    res.json({ logs: '', exists: false });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
