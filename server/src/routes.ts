@@ -876,7 +876,7 @@ docker tag convexer-convexer:pending convexer-convexer:latest
 docker rmi convexer-convexer:pending || true
 
 echo "[updater] starting final container via docker compose"
-docker compose -p convexer up -d convexer traefik
+docker compose -p convexer up -d --force-recreate convexer traefik
 
 echo "[updater] blue-green deploy complete!"
 `;
