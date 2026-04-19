@@ -11,7 +11,7 @@ db.pragma('foreign_keys = ON');
 db.exec(`
   CREATE TABLE IF NOT EXISTS instances (
     id TEXT PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'creating',
     backend_container_id TEXT,
     dashboard_container_id TEXT,
@@ -32,6 +32,69 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
+
+// Migration: remove UNIQUE constraint from name column for existing databases
+// SQLite doesn't support ALTER TABLE DROP CONSTRAINT, so we recreate the table
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(instances)").all() as any[];
+  const hasNameUnique = tableInfo.some((col: any) => col.name === 'name' && col.dfltval === null && col.notnull === 1);
+  // Check if there's a unique index on name (old style)
+  const indexes = db.prepare("PRAGMA index_list(instances)").all() as any[];
+  const hasOldUniqueIndex = indexes.some((idx: any) => idx.name === 'sqlite_autoindex_instances_1' || idx.name?.includes('name'));
+
+  if (hasOldUniqueIndex) {
+    console.log('[migration] Removing old UNIQUE constraint on instances.name...');
+    db.exec(`
+      BEGIN TRANSACTION;
+      CREATE TABLE instances_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'creating',
+        backend_container_id TEXT,
+        dashboard_container_id TEXT,
+        postgres_container_id TEXT,
+        backend_port INTEGER NOT NULL,
+        site_proxy_port INTEGER NOT NULL,
+        dashboard_port INTEGER NOT NULL,
+        postgres_port INTEGER NOT NULL,
+        volume_name TEXT NOT NULL,
+        postgres_volume_name TEXT NOT NULL,
+        postgres_password TEXT NOT NULL,
+        admin_key TEXT,
+        instance_name TEXT NOT NULL,
+        instance_secret TEXT NOT NULL,
+        error_message TEXT,
+        extra_env TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        archived_at TEXT,
+        betterauth_enabled INTEGER DEFAULT 0,
+        betterauth_container_id TEXT,
+        betterauth_port INTEGER DEFAULT 0,
+        pinned_version TEXT,
+        detected_version TEXT,
+        health_check_timeout INTEGER DEFAULT 60,
+        postgres_health_check_timeout INTEGER DEFAULT 30
+      );
+      INSERT INTO instances_new SELECT * FROM instances;
+      DROP TABLE instances;
+      ALTER TABLE instances_new RENAME TO instances;
+      COMMIT;
+    `);
+    console.log('[migration] UNIQUE constraint removed from instances.name');
+  }
+} catch (err: any) {
+  if (!err.message.includes('no such table')) {
+    console.warn('[migration] Failed to remove UNIQUE constraint:', err.message);
+  }
+}
+
+// Ensure the partial unique index exists (for both new and migrated databases)
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_instances_name_active ON instances(name) WHERE archived_at IS NULL');
+} catch (err: any) {
+  console.warn('[migration] Failed to create partial unique index:', err.message);
+}
 
 // Migration: add extra_env column if it doesn't exist
 try {
