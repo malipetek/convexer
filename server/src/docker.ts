@@ -500,30 +500,56 @@ export async function removeInstance(instance: Instance): Promise<void> {
   }
 
   // Try removing containers by ID and by name (fallback for failed creates)
-  const containerIds = [instance.dashboard_container_id, instance.backend_container_id, instance.postgres_container_id].filter(Boolean) as string[];
-  const containerNames = [`convexer-dashboard-${instance.name}`, `convexer-backend-${instance.name}`, `convexer-postgres-${instance.name}`];
-
-  for (const ref of [...containerIds, ...containerNames]) {
+  // Inspect first to deduplicate IDs vs names pointing to the same container
+  const containerRefs = [
+    ...([instance.dashboard_container_id, instance.backend_container_id, instance.postgres_container_id].filter(Boolean) as string[]),
+    `convexer-dashboard-${instance.name}`,
+    `convexer-backend-${instance.name}`,
+    `convexer-postgres-${instance.name}`,
+  ];
+  const removedIds = new Set<string>();
+  for (const ref of containerRefs) {
     try {
       const container = docker.getContainer(ref);
-      try { await container.stop(); } catch { /* already stopped or doesn't exist */ }
+      const info = await container.inspect().catch(() => null);
+      if (!info) continue;
+      if (removedIds.has(info.Id)) continue;
+      removedIds.add(info.Id);
+      try { await container.stop(); } catch { /* already stopped */ }
       await container.remove({ force: true });
-    } catch { /* container doesn't exist, that's fine */ }
+    } catch (err: any) {
+      if (err.statusCode !== 404) console.warn(`Failed to remove container ${ref}:`, err.message);
+    }
   }
 
-  // Remove volumes
-  try {
-    const volume = docker.getVolume(instance.volume_name);
-    await volume.remove();
-  } catch (err: any) {
-    if (err.statusCode !== 404) console.warn(`Failed to remove volume ${instance.volume_name}:`, err.message);
-  }
+  // Brief pause so Docker fully releases volume references before we try to remove them
+  await new Promise(r => setTimeout(r, 500));
 
-  try {
-    const postgresVolume = docker.getVolume(instance.postgres_volume_name);
-    await postgresVolume.remove();
-  } catch (err: any) {
-    if (err.statusCode !== 404) console.warn(`Failed to remove PostgreSQL volume ${instance.postgres_volume_name}:`, err.message);
+  // Remove volumes - try both stored names and convention-based names (deduplicated)
+  const volumesToRemove = new Set<string>(
+    [
+      instance.volume_name,
+      instance.postgres_volume_name,
+      `convexer-${instance.name}`,
+      `convexer-postgres-${instance.name}`,
+    ].filter(Boolean) as string[]
+  );
+
+  for (const volName of volumesToRemove) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await docker.getVolume(volName).remove();
+        break;
+      } catch (err: any) {
+        if (err.statusCode === 404) break;
+        if (err.statusCode === 409 && attempt < 2) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        console.warn(`Failed to remove volume ${volName}:`, err.message);
+        break;
+      }
+    }
   }
 }
 
