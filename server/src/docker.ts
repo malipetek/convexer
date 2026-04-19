@@ -344,7 +344,7 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
 {
   const domain = process.env.DOMAIN || '';
   const dbName = instance.instance_name.replace(/-/g, '_');
-  const databaseUrl = `postgres://postgres:${instance.postgres_password}@convexer-postgres-${instance.name}:5432/${dbName}`;
+  const databaseUrl = `postgres://postgres:${instance.postgres_password}@convexer-postgres-${instance.name}:5432/${dbName}?sslmode=disable`;
 
   // Determine public base URL for the sidecar
   let baseUrl = `http://localhost:${instance.betterauth_port}`;
