@@ -8,24 +8,42 @@ import { getBackendTraefikLabels, getDashboardTraefikLabels, getBetterAuthTraefi
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
 
-const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
-const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
+const BACKEND_IMAGE_BASE = 'ghcr.io/get-convex/convex-backend';
+const DASHBOARD_IMAGE_BASE = 'ghcr.io/get-convex/convex-dashboard';
 const POSTGRES_IMAGE = 'postgres:16-alpine';
 const BETTERAUTH_IMAGE = 'convexer-better-auth-sidecar:latest';
 
-export async function ensureImages(): Promise<void> {
-  for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE, POSTGRES_IMAGE]) {
+function getImages (instance: Pick<Instance, 'pinned_version'>): { backend: string; dashboard: string }
+{
+  const tag = instance.pinned_version || 'latest';
+  return {
+    backend: `${BACKEND_IMAGE_BASE}:${tag}`,
+    dashboard: `${DASHBOARD_IMAGE_BASE}:${tag}`,
+  };
+}
+
+export async function pullImage (image: string): Promise<void>
+{
+  console.log(`Pulling ${image}...`);
+  const stream = await docker.pull(image);
+  await new Promise<void>((resolve, reject) =>
+  {
+    docker.modem.followProgress(stream, (err: Error | null) =>
+    {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+export async function ensureImages (): Promise<void>
+{
+  const images = [`${BACKEND_IMAGE_BASE}:latest`, `${DASHBOARD_IMAGE_BASE}:latest`, POSTGRES_IMAGE];
+  for (const image of images) {
     try {
       await docker.getImage(image).inspect();
     } catch {
-      console.log(`Pulling ${image}...`);
-      const stream = await docker.pull(image);
-      await new Promise<void>((resolve, reject) => {
-        docker.modem.followProgress(stream, (err: Error | null) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
+      await pullImage(image);
     }
   }
 }
@@ -128,9 +146,11 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     // Get Traefik labels if domain is set
     const backendTraefikLabels = getBackendTraefikLabels(instance, domain);
 
+    const { backend: backendImage, dashboard: dashboardImage } = getImages(instance);
+
     // Create and start backend container
     const backendContainer = await docker.createContainer({
-      Image: BACKEND_IMAGE,
+      Image: backendImage,
       name: `convexer-backend-${instance.name}`,
       ExposedPorts: { '3210/tcp': {}, '3211/tcp': {} },
       HostConfig: {
@@ -181,7 +201,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     // Create and start dashboard container
     const dashboardTraefikLabels = getDashboardTraefikLabels(instance, domain);
     const dashboardContainer = await docker.createContainer({
-      Image: DASHBOARD_IMAGE,
+      Image: dashboardImage,
       name: `convexer-dashboard-${instance.name}`,
       ExposedPorts: { '6791/tcp': {} },
       HostConfig: {
@@ -301,17 +321,17 @@ async function generateAdminKey(container: Docker.Container, instanceName: strin
 
 function demuxStream(stream: NodeJS.ReadableStream): Promise<string> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
+    const chunks: Uint8Array[] = [];
     let buffer = Buffer.alloc(0);
 
     stream.on('data', (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
+      buffer = Buffer.concat([buffer as Uint8Array, chunk as Uint8Array]);
       // Docker multiplexed stream: 8-byte header per frame
       // [stream_type(1), 0, 0, 0, size(4 big-endian)] then payload
       while (buffer.length >= 8) {
         const size = buffer.readUInt32BE(4);
         if (buffer.length < 8 + size) break;
-        chunks.push(buffer.subarray(8, 8 + size));
+        chunks.push(buffer.subarray(8, 8 + size) as Uint8Array);
         buffer = buffer.subarray(8 + size);
       }
     });

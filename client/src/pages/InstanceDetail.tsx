@@ -11,7 +11,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
-import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive, Box, CircleDot, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive, Box, CircleDot, AlertCircle, CheckCircle2, ArrowUpCircle, PackageOpen } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import InstanceMetrics, { type MetricSample } from '../components/InstanceMetrics';
@@ -705,6 +705,97 @@ export default function InstanceDetail() {
   );
 }
 
+function VersionUpgradeCard ({ instance }: { instance: any })
+{
+  const queryClient = useQueryClient();
+  const [targetVersion, setTargetVersion] = useState('');
+  const [upgradeResult, setUpgradeResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const upgradeMutation = useMutation({
+    mutationFn: (version: string) => api.upgradeInstance(instance.id, version),
+    onSuccess: (data) =>
+    {
+      setUpgradeResult({ success: true, message: data.message || 'Upgrade successful' });
+      setTargetVersion('');
+      queryClient.invalidateQueries({ queryKey: ['instance', instance.id] });
+    },
+    onError: (err: any) =>
+    {
+      setUpgradeResult({ success: false, message: err.message || 'Upgrade failed' });
+    },
+  });
+
+  const handleUpgrade = () =>
+  {
+    const version = targetVersion.trim() || 'latest';
+    if (!confirm(`Upgrade instance to Convex version "${version}"?\n\nA backup will be taken automatically before upgrading. The instance will restart.`)) return;
+    setUpgradeResult(null);
+    upgradeMutation.mutate(version);
+  };
+
+  const currentVersion = instance.pinned_version || 'latest';
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <PackageOpen className="h-4 w-4" />
+          Convex Version
+        </CardTitle>
+        <CardDescription>
+          Upgrade or pin this instance to a specific Convex backend version.
+          A backup is created automatically before any upgrade.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Current version:</span>
+          <Badge variant="secondary" className="font-mono">{currentVersion}</Badge>
+          {instance.detected_version && instance.detected_version !== instance.pinned_version && (
+            <Badge variant="outline" className="font-mono text-xs">detected: {instance.detected_version}</Badge>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="e.g. 0.1.0 (leave empty for latest)"
+            value={targetVersion}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetVersion(e.target.value)}
+            disabled={upgradeMutation.isPending}
+            className="font-mono"
+          />
+          <Button
+            onClick={handleUpgrade}
+            disabled={upgradeMutation.isPending}
+            className="shrink-0"
+          >
+            {upgradeMutation.isPending
+              ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Upgrading…</>
+              : <><ArrowUpCircle className="h-4 w-4 mr-2" />Upgrade</>
+            }
+          </Button>
+        </div>
+
+        {upgradeMutation.isPending && (
+          <p className="text-xs text-muted-foreground">
+            Pulling image, backing up, and recreating containers — this may take a few minutes…
+          </p>
+        )}
+
+        {upgradeResult && (
+          <div className={`flex items-start gap-2 text-sm p-3 rounded-md border ${upgradeResult.success ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-300' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
+            {upgradeResult.success
+              ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+              : <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            }
+            <span>{upgradeResult.message}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function InstanceSettings ({ instance }: { instance: any })
 {
   const [saving, setSaving] = useState(false);
@@ -876,6 +967,7 @@ function InstanceSettings ({ instance }: { instance: any })
         </CardContent>
       </Card>
 
+      <VersionUpgradeCard instance={instance} />
     </>
   );
 }

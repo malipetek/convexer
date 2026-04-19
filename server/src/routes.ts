@@ -40,7 +40,8 @@ import
   removeInstance,
   syncInstanceStatuses,
   getContainerLogs,
-  ensureImages
+  ensureImages,
+  pullImage
 } from './docker.js';
 import
 {
@@ -504,6 +505,18 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
   }
 
   try {
+    // Pull and validate target images before making any destructive changes
+    const tag = targetVersion === 'latest' ? 'latest' : targetVersion;
+    const backendImage = `ghcr.io/get-convex/convex-backend:${tag}`;
+    const dashboardImage = `ghcr.io/get-convex/convex-dashboard:${tag}`;
+    try {
+      await pullImage(backendImage);
+      await pullImage(dashboardImage);
+    } catch (pullErr: any) {
+      res.status(400).json({ error: `Failed to pull version "${targetVersion}": ${pullErr.message}` });
+      return;
+    }
+
     // Create pre-upgrade backup
     const backupId = uuidv4();
     const { backupDatabase, backupVolume } = await import('./backup.js');
