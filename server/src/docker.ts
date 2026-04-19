@@ -49,14 +49,11 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     updateInstance(instance.id, { postgres_password: postgresPassword });
 
     // Create and start PostgreSQL container
+    // No PortBindings: PostgreSQL is only accessible within the Docker network
     const postgresContainer = await docker.createContainer({
       Image: POSTGRES_IMAGE,
       name: `convexer-postgres-${instance.name}`,
-      ExposedPorts: { '5432/tcp': {} },
       HostConfig: {
-        PortBindings: {
-          '5432/tcp': [{ HostPort: String(instance.postgres_port) }],
-        },
         Binds: [`${postgresVolumeName}:/var/lib/postgresql/data`],
         RestartPolicy: { Name: 'unless-stopped' },
       },
