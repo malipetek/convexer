@@ -241,6 +241,8 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   },
+  getMonitoringLogs: (container: string, tail = 300) =>
+    request<{ logs: string }>(`/monitoring/logs?container=${container}&tail=${tail}`),
   getMonitoringStatus: () => request<{
     umami: { url: string; running: boolean; status: string; db_status: string };
     glitchtip: { url: string; running: boolean; status: string; worker_status: string; db_status: string; redis_status: string };

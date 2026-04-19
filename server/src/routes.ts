@@ -1992,6 +1992,33 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
   }
 });
 
+// Monitoring container logs
+const MONITORING_CONTAINERS: Record<string, string> = {
+  'umami': 'convexer-umami',
+  'umami-db': 'convexer-umami-db',
+  'glitchtip-web': 'convexer-glitchtip-web',
+  'glitchtip-worker': 'convexer-glitchtip-worker',
+  'glitchtip-db': 'convexer-glitchtip-db',
+  'glitchtip-redis': 'convexer-glitchtip-redis',
+};
+
+router.get('/monitoring/logs', async (req: Request, res: Response) =>
+{
+  const container = req.query.container as string;
+  const tail = parseInt(req.query.tail as string) || 300;
+  const containerName = MONITORING_CONTAINERS[container];
+  if (!containerName) {
+    res.status(400).json({ error: `Unknown container: ${container}. Valid: ${Object.keys(MONITORING_CONTAINERS).join(', ')}` });
+    return;
+  }
+  try {
+    const logs = await getContainerLogs(containerName, tail);
+    res.json({ logs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Monitoring stack status
 router.get('/monitoring/status', async (_req: Request, res: Response) =>
 {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink, Terminal } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -299,6 +299,67 @@ function ServerStats ()
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+const UMAMI_CONTAINERS = [
+  { value: 'umami', label: 'App' },
+  { value: 'umami-db', label: 'Database' },
+];
+
+const GLITCHTIP_CONTAINERS = [
+  { value: 'glitchtip-web', label: 'Web' },
+  { value: 'glitchtip-worker', label: 'Worker' },
+  { value: 'glitchtip-db', label: 'Database' },
+  { value: 'glitchtip-redis', label: 'Redis' },
+];
+
+function MonitoringLogs ({ containers }: { containers: { value: string; label: string }[] })
+{
+  const [selected, setSelected] = useState(containers[0].value);
+  const logRef = useRef<HTMLPreElement>(null);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['monitoring-logs', selected],
+    queryFn: () => api.getMonitoringLogs(selected),
+    refetchInterval: 5000,
+  });
+
+  useEffect(() =>
+  {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [data]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Logs</span>
+        <div className="flex gap-1 ml-2">
+          {containers.map(c => (
+            <button
+              key={c.value}
+              onClick={() => setSelected(c.value)}
+              className={`px-2 py-0.5 rounded text-xs font-mono transition-colors ${selected === c.value
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        <RefreshCw className={`h-3 w-3 ml-auto text-muted-foreground ${isFetching ? 'animate-spin' : ''}`} />
+      </div>
+      <pre
+        ref={logRef}
+        className="text-xs bg-black text-green-400 font-mono p-3 rounded overflow-auto max-h-60 whitespace-pre-wrap"
+      >
+        {data?.logs || 'No logs available'}
+      </pre>
     </div>
   );
 }
@@ -611,6 +672,7 @@ export default function Settings() {
                     Default login: <span className="font-mono">admin / umami</span> — change immediately after first login.
                     Create one Website per app, use the tracking script or API with the website ID.
                   </p>
+                  <MonitoringLogs containers={UMAMI_CONTAINERS} />
                 </CardContent>
               </Card>
 
@@ -670,6 +732,7 @@ export default function Settings() {
                     Sentry-compatible — use any Sentry SDK with DSN from GlitchTip.
                     Create an Organization, then one Project per app to get separate DSNs.
                   </p>
+                  <MonitoringLogs containers={GLITCHTIP_CONTAINERS} />
                 </CardContent>
               </Card>
 
