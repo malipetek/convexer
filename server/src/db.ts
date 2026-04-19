@@ -36,13 +36,11 @@ db.exec(`
 // Migration: remove UNIQUE constraint from name column for existing databases
 // SQLite doesn't support ALTER TABLE DROP CONSTRAINT, so we recreate the table
 try {
-  const tableInfo = db.prepare("PRAGMA table_info(instances)").all() as any[];
-  const hasNameUnique = tableInfo.some((col: any) => col.name === 'name' && col.dfltval === null && col.notnull === 1);
-  // Check if there's a unique index on name (old style)
   const indexes = db.prepare("PRAGMA index_list(instances)").all() as any[];
-  const hasOldUniqueIndex = indexes.some((idx: any) => idx.name === 'sqlite_autoindex_instances_1' || idx.name?.includes('name'));
+  // SQLite auto-generates indexes for UNIQUE constraints: sqlite_autoindex_instances_1 is PK, sqlite_autoindex_instances_2 is name UNIQUE
+  const hasNameUniqueIndex = indexes.some((idx: any) => idx.unique === 1 && idx.origin === 'u' && idx.name !== 'idx_instances_name_active');
 
-  if (hasOldUniqueIndex) {
+  if (hasNameUniqueIndex) {
     console.log('[migration] Removing old UNIQUE constraint on instances.name...');
     db.exec(`
       BEGIN TRANSACTION;
