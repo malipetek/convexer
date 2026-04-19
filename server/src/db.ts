@@ -54,10 +54,10 @@ try {
         backend_port INTEGER NOT NULL,
         site_proxy_port INTEGER NOT NULL,
         dashboard_port INTEGER NOT NULL,
-        postgres_port INTEGER NOT NULL,
+        postgres_port INTEGER NOT NULL DEFAULT 5432,
         volume_name TEXT NOT NULL,
-        postgres_volume_name TEXT NOT NULL,
-        postgres_password TEXT NOT NULL,
+        postgres_volume_name TEXT NOT NULL DEFAULT '',
+        postgres_password TEXT NOT NULL DEFAULT '',
         admin_key TEXT,
         instance_name TEXT NOT NULL,
         instance_secret TEXT NOT NULL,
@@ -68,11 +68,11 @@ try {
         archived_at TEXT,
         betterauth_enabled INTEGER DEFAULT 0,
         betterauth_container_id TEXT,
-        betterauth_port INTEGER DEFAULT 0,
+        betterauth_port INTEGER DEFAULT 6792,
         pinned_version TEXT,
         detected_version TEXT,
-        health_check_timeout INTEGER DEFAULT 60,
-        postgres_health_check_timeout INTEGER DEFAULT 30
+        health_check_timeout INTEGER DEFAULT 300000,
+        postgres_health_check_timeout INTEGER DEFAULT 60000
       );
       INSERT INTO instances_new SELECT * FROM instances;
       DROP TABLE instances;
