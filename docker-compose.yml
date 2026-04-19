@@ -79,7 +79,7 @@ services:
     depends_on:
       - umami-db
     environment:
-      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-change_me_umami_db}@convexer-umami-db:5432/umami
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-change_me_umami_db}@umami-db:5432/umami
       APP_SECRET: ${UMAMI_APP_SECRET:-change_me_umami_secret_32chars_min}
     labels:
       - traefik.enable=true
@@ -118,9 +118,9 @@ services:
       - glitchtip-db
       - glitchtip-redis
     environment:
-      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@convexer-glitchtip-db:5432/glitchtip
+      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
-      REDIS_URL: redis://convexer-glitchtip-redis:6379/0
+      REDIS_URL: redis://glitchtip-redis:6379/0
       GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
       DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-errors@example.com}
       EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
@@ -141,9 +141,9 @@ services:
       - glitchtip-db
       - glitchtip-redis
     environment:
-      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@convexer-glitchtip-db:5432/glitchtip
+      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
-      REDIS_URL: redis://convexer-glitchtip-redis:6379/0
+      REDIS_URL: redis://glitchtip-redis:6379/0
       GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
     networks:
       - convexer-net
