@@ -25,6 +25,8 @@ const pool = new Pool({
 const plugins: any[] = [];
 
 // Dynamically load @better-auth/infra if available
+// Temporarily disabled to debug database adapter issue
+/*
 try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const infraModule = await import('@better-auth/infra') as any;
@@ -38,6 +40,7 @@ try {
 } catch (err) {
   console.warn('@better-auth/infra not available, running without infra plugin');
 }
+*/
 
 const auth = betterAuth({
   database: {
