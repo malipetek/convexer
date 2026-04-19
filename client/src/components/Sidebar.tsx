@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { Link, useLocation } from 'react-router-dom';
 import { Card } from './ui/card';
-import { Database, Plus, Settings as SettingsIcon } from 'lucide-react';
+import { Database, Plus, Settings as SettingsIcon, Archive } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 
@@ -71,7 +71,17 @@ export default function Sidebar({ onCreate }: SidebarProps) {
         )}
       </div>
 
-      <div className="p-4 border-t">
+      <div className="p-4 border-t space-y-1">
+        <Link
+          to="/archives"
+          className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${isActive('/archives')
+              ? 'bg-primary text-primary-foreground'
+              : 'hover:bg-muted'
+            }`}
+        >
+          <Archive className="h-4 w-4" />
+          <span>Archives</span>
+        </Link>
         <Link
           to="/settings"
           className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${

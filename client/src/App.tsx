@@ -10,6 +10,7 @@ import CreateDialog from './components/CreateDialog';
 import InstanceDetail from './pages/InstanceDetail';
 import Home from './pages/Home';
 import Settings from './pages/Settings';
+import Archives from './pages/Archives';
 
 const queryClient = new QueryClient();
 
@@ -51,6 +52,7 @@ function App ()
                 <Route path="/" element={<Home />} />
                 <Route path="/instances/:id" element={<InstanceDetail />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/archives" element={<Archives />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </main>

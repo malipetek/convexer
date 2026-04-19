@@ -8,10 +8,12 @@ import { promisify } from 'util';
 import
 {
   getAllInstances,
+  getArchivedInstances,
   getInstance,
   createInstance,
   updateInstance,
   deleteInstance,
+  archiveInstance,
   allocatePorts,
   getBackupConfig,
   createBackupConfig,
@@ -71,7 +73,7 @@ import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames, getTunnelDomain
 import { randomUUID } from 'crypto';
 import { getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
-import { readFileSync } from 'fs';
+import { readFileSync, promises as fsPromises } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import path from 'path';
@@ -251,7 +253,7 @@ router.post('/instances/:id/forget', (req: Request, res: Response) => {
   res.status(204).send();
 });
 
-// Full delete — remove containers, volumes, tunnel routes, and DB row
+// Delete — back up, remove containers/volumes/tunnel, then archive (soft delete)
 router.delete('/instances/:id', async (req: Request, res: Response) => {
   const instance = getInstance(req.params.id as string);
   if (!instance) {
@@ -259,26 +261,81 @@ router.delete('/instances/:id', async (req: Request, res: Response) => {
     return;
   }
 
-  const errors: string[] = [];
+  const warnings: string[] = [];
+  const backupResults: Record<string, any> = {};
 
-  // Each step is best-effort so delete always completes
+  // Step 1: Take backups while containers are still accessible
+  try {
+    const dbBackupId = randomUUID();
+    backupResults.database = await backupDatabase(instance, dbBackupId, 'Pre-deletion');
+  } catch (err: any) {
+    console.warn(`Pre-deletion DB backup failed for ${instance.name}:`, err.message);
+    backupResults.database = { success: false, error: err.message };
+  }
+
+  try {
+    const volBackupId = randomUUID();
+    backupResults.volume = await backupVolume(instance, volBackupId, 'Pre-deletion');
+  } catch (err: any) {
+    console.warn(`Pre-deletion volume backup failed for ${instance.name}:`, err.message);
+    backupResults.volume = { success: false, error: err.message };
+  }
+
+  // Step 2: Remove containers and volumes
   try { await removeInstance(instance); } catch (err: any) {
     console.warn(`Failed to remove containers:`, err.message);
-    errors.push(`containers: ${err.message}`);
+    warnings.push(`containers: ${err.message}`);
   }
 
   try { removeTunnelRoutes(instance); } catch (err: any) {
     console.warn(`Failed to remove tunnel routes:`, err.message);
-    errors.push(`tunnel: ${err.message}`);
+    warnings.push(`tunnel: ${err.message}`);
   }
+
+  // Step 3: Archive (soft delete — keeps DB row + backup files)
+  archiveInstance(instance.id);
+
+  res.json({
+    archived: true,
+    warnings: warnings.length ? warnings : undefined,
+    backups: backupResults,
+  });
+});
+
+// List archived instances
+router.get('/archived-instances', (_req: Request, res: Response) =>
+{
+  const archived = getArchivedInstances();
+  const withHistory = archived.map(instance =>
+  {
+    const history = getBackupHistory(instance.id, 10);
+    return { ...instance, backup_history: history };
+  });
+  res.json(withHistory);
+});
+
+// Permanently delete an archived instance (removes DB row + backup files)
+router.delete('/archived-instances/:id', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance || !instance.archived_at) {
+    res.status(404).json({ error: 'Archived instance not found' });
+    return;
+  }
+
+  // Delete backup files from disk
+  const history = getBackupHistory(instance.id, 1000);
+  for (const backup of history) {
+    if (backup.file_path) {
+      try { await fsPromises.unlink(backup.file_path); } catch { /* already gone */ }
+    }
+  }
+  // Remove backup directory
+  const backupDir = path.join(process.env.DATA_DIR || process.cwd(), 'backups', instance.id);
+  try { await fsPromises.rm(backupDir, { recursive: true, force: true }); } catch { /* dir may not exist */ }
 
   deleteInstance(instance.id);
-
-  if (errors.length) {
-    res.json({ deleted: true, warnings: errors });
-  } else {
-    res.status(204).send();
-  }
+  res.status(204).send();
 });
 
 // Get logs

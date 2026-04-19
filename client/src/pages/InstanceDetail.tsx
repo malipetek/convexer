@@ -116,7 +116,12 @@ export default function InstanceDetail() {
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteInstance(id!),
-    onSuccess: () => navigate('/'),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      queryClient.invalidateQueries({ queryKey: ['archived-instances'] });
+      navigate('/');
+    },
   });
 
   const duplicateMutation = useMutation({
@@ -272,14 +277,14 @@ export default function InstanceDetail() {
                   <Button
                     variant="destructive"
                     onClick={() => {
-                      if (confirm(`Delete instance "${instance.name}" and all its containers/data?`)) {
+                      if (confirm(`Archive "${instance.name}"? Containers and volumes will be removed after taking a backup. The instance will move to Archives and can be permanently deleted later.`)) {
                         deleteMutation.mutate();
                       }
                     }}
                     disabled={deleteMutation.isPending}
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
+                    <Archive className="h-4 w-4 mr-2" />
+                    {deleteMutation.isPending ? 'Archiving…' : 'Archive & Delete'}
                   </Button>
                 </CardContent>
               </Card>

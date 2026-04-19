@@ -1,4 +1,4 @@
-import { Instance, InstanceStats } from './types';
+import { Instance, ArchivedInstance, InstanceStats } from './types';
 
 const BASE = '/api';
 
@@ -67,7 +67,10 @@ export const api = {
   stopInstance: (id: string) =>
     request<Instance>(`/instances/${id}/stop`, { method: 'POST' }),
   deleteInstance: (id: string) =>
-    request<void>(`/instances/${id}`, { method: 'DELETE' }),
+    request<{ archived: boolean; warnings?: string[]; backups?: Record<string, any> }>(`/instances/${id}`, { method: 'DELETE' }),
+  getArchivedInstances: () => request<ArchivedInstance[]>('/archived-instances'),
+  permanentlyDeleteInstance: (id: string) =>
+    request<void>(`/archived-instances/${id}`, { method: 'DELETE' }),
   forgetInstance: (id: string) =>
     request<void>(`/instances/${id}/forget`, { method: 'POST' }),
   getLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' = 'backend', tail = 200) =>

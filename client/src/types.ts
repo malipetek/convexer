@@ -27,8 +27,23 @@ export interface Instance {
   tunnel_backend?: string;
   tunnel_site?: string;
   tunnel_dashboard?: string;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ArchivedInstance extends Instance
+{
+  backup_history: Array<{
+    id: string;
+    backup_type: string;
+    status: string;
+    size_bytes: number | null;
+    file_path: string | null;
+    label: string | null;
+    started_at: string;
+    completed_at: string | null;
+  }>;
 }
 
 export interface InstanceStats

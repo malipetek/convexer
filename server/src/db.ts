@@ -84,6 +84,13 @@ for (const columnDef of betterauthColumns) {
   }
 }
 
+// Migration: add archived_at column
+try {
+  db.exec('ALTER TABLE instances ADD COLUMN archived_at TEXT');
+} catch (err: any) {
+  if (!err.message.includes('duplicate column')) console.warn('Migration archived_at failed:', err.message);
+}
+
 // Migration: add version and health check metadata columns
 const metadataColumns = [
   'pinned_version TEXT',
@@ -267,14 +274,25 @@ db.exec(`
 `);
 
 export function getAllInstances(): Instance[] {
-  return db.prepare('SELECT * FROM instances ORDER BY created_at DESC').all() as Instance[];
+  return db.prepare('SELECT * FROM instances WHERE archived_at IS NULL ORDER BY created_at DESC').all() as Instance[];
+}
+
+export function getArchivedInstances (): Instance[]
+{
+  return db.prepare('SELECT * FROM instances WHERE archived_at IS NOT NULL ORDER BY archived_at DESC').all() as Instance[];
+}
+
+export function archiveInstance (id: string): boolean
+{
+  const result = db.prepare("UPDATE instances SET archived_at = datetime('now'), status = 'stopped' WHERE id = ?").run(id);
+  return result.changes > 0;
 }
 
 export function getInstance(id: string): Instance | undefined {
   return db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance | undefined;
 }
 
-export function createInstance (instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id' | 'postgres_container_id' | 'betterauth_container_id'>): Instance
+export function createInstance (instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id' | 'postgres_container_id' | 'betterauth_container_id' | 'archived_at'>): Instance
 {
   const stmt = db.prepare(`
     INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, postgres_port, betterauth_port, volume_name, postgres_volume_name, postgres_password, instance_name, instance_secret, extra_env)

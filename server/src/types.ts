@@ -23,6 +23,7 @@ export interface Instance {
   detected_version: string | null;
   health_check_timeout: number;
   postgres_health_check_timeout: number;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
