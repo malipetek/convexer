@@ -23,9 +23,15 @@ const plugins: any[] = [];
 
 // Dynamically load @better-auth/infra if available
 try {
-  const { infra } = await import('@better-auth/infra');
-  plugins.push(infra());
-  console.log('Loaded @better-auth/infra plugin');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const infraModule = await import('@better-auth/infra') as any;
+  const infraFn = infraModule.infra ?? infraModule.default?.infra ?? infraModule.default;
+  if (typeof infraFn === 'function') {
+    plugins.push(infraFn());
+    console.log('Loaded @better-auth/infra plugin');
+  } else {
+    console.warn('@better-auth/infra loaded but no callable export found');
+  }
 } catch (err) {
   console.warn('@better-auth/infra not available, running without infra plugin');
 }
