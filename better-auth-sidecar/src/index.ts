@@ -8,13 +8,6 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BASE_URL = process.env.BASE_URL;
 
-// Catch unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) =>
-{
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required');
   process.exit(1);
@@ -28,56 +21,6 @@ const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: process.env.DO_NOT_REQUIRE_SSL === '1' ? false : { rejectUnauthorized: false },
 });
-
-// Verify database connection
-try {
-  await pool.query('SELECT 1');
-  console.log('Database connection verified');
-} catch (err: any) {
-  console.error('Failed to connect to database:', err.message, err.stack);
-  process.exit(1);
-}
-
-// Create Better Auth tables if they don't exist
-try {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS "user" (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      email_verified BOOLEAN DEFAULT FALSE,
-      name TEXT,
-      image TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS session (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      token TEXT UNIQUE NOT NULL,
-      expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS account (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      provider_id TEXT NOT NULL,
-      account_id TEXT NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-    )
-  `);
-  console.log('Better Auth tables created/verified');
-} catch (err: any) {
-  console.error('Failed to create Better Auth tables:', err.message, err.stack);
-  process.exit(1);
-}
 
 const plugins: any[] = [];
 
@@ -102,8 +45,7 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    // Temporarily disable database to stop restart loop
-    // TODO: Investigate Better Auth schema requirements
+    // Database adapter temporarily disabled pending schema investigation
     // database: {
     //   type: 'pg',
     //   pool,
@@ -116,7 +58,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully (without database)');
+  console.log('Better Auth initialized successfully');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
