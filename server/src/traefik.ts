@@ -107,6 +107,35 @@ export function getBackendTraefikLabels (instance: Instance, domain: string): Re
   return labels;
 }
 
+export function getBetterAuthTraefikLabels (instance: Instance, domain: string): Record<string, string>
+{
+  if (!domain) return {};
+
+  let betterauthDomain = `${instance.name}-auth.${domain}`;
+
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      if (env.BETTERAUTH_DOMAIN) {
+        betterauthDomain = env.BETTERAUTH_DOMAIN;
+      }
+    } catch {
+      // Use default if parsing fails
+    }
+  }
+
+  const labels: Record<string, string> = {
+    'traefik.enable': 'true',
+  };
+
+  labels[`traefik.http.routers.betterauth-${instance.name}.rule`] = `Host(\`${betterauthDomain}\`)`;
+  labels[`traefik.http.routers.betterauth-${instance.name}.entrypoints`] = 'web';
+  labels[`traefik.http.routers.betterauth-${instance.name}.service`] = `betterauth-${instance.name}`;
+  labels[`traefik.http.services.betterauth-${instance.name}.loadbalancer.server.port`] = '4200';
+
+  return labels;
+}
+
 export function getDashboardTraefikLabels (instance: Instance, domain: string): Record<string, string>
 {
   if (!domain) return {};

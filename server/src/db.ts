@@ -65,6 +65,25 @@ for (const columnDef of postgresColumns) {
   }
 }
 
+// Migration: add Better Auth sidecar columns if they don't exist
+const betterauthColumns = [
+  'betterauth_container_id TEXT',
+  'betterauth_port INTEGER NOT NULL DEFAULT 0'
+];
+
+for (const columnDef of betterauthColumns) {
+  const columnName = columnDef.split(' ')[0];
+  try {
+    db.exec(`ALTER TABLE instances ADD COLUMN ${columnDef}`);
+  } catch (err: any) {
+    if (err.message.includes('duplicate column')) {
+      // Column already exists, that's fine
+    } else {
+      console.warn(`Failed to add ${columnName} column:`, err.message);
+    }
+  }
+}
+
 // Migration: add version and health check metadata columns
 const metadataColumns = [
   'pinned_version TEXT',
@@ -255,11 +274,11 @@ export function getInstance(id: string): Instance | undefined {
   return db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance | undefined;
 }
 
-export function createInstance (instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id' | 'postgres_container_id'>): Instance
+export function createInstance (instance: Omit<Instance, 'created_at' | 'updated_at' | 'admin_key' | 'error_message' | 'backend_container_id' | 'dashboard_container_id' | 'postgres_container_id' | 'betterauth_container_id'>): Instance
 {
   const stmt = db.prepare(`
-    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, postgres_port, volume_name, postgres_volume_name, postgres_password, instance_name, instance_secret, extra_env)
-    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @postgres_port, @volume_name, @postgres_volume_name, @postgres_password, @instance_name, @instance_secret, @extra_env)
+    INSERT INTO instances (id, name, status, backend_port, site_proxy_port, dashboard_port, postgres_port, betterauth_port, volume_name, postgres_volume_name, postgres_password, instance_name, instance_secret, extra_env)
+    VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @postgres_port, @betterauth_port, @volume_name, @postgres_volume_name, @postgres_password, @instance_name, @instance_secret, @extra_env)
   `);
   stmt.run(instance);
   return getInstance(instance.id)!;
@@ -267,7 +286,7 @@ export function createInstance (instance: Omit<Instance, 'created_at' | 'updated
 
 export function updateInstance(id: string, updates: Partial<Instance>): Instance | undefined {
   const allowed = [
-    'status', 'backend_container_id', 'dashboard_container_id', 'postgres_container_id',
+    'status', 'backend_container_id', 'dashboard_container_id', 'postgres_container_id', 'betterauth_container_id',
     'admin_key', 'error_message', 'extra_env', 'postgres_password',
     'pinned_version', 'detected_version', 'health_check_timeout', 'postgres_health_check_timeout'
   ];
@@ -285,9 +304,9 @@ export function deleteInstance(id: string): boolean {
   return result.changes > 0;
 }
 
-export function allocatePorts (): { backendPort: number; siteProxyPort: number; dashboardPort: number; postgresPort: number }
+export function allocatePorts (): { backendPort: number; siteProxyPort: number; dashboardPort: number; postgresPort: number; betterauthPort: number }
 {
-  const instances = db.prepare('SELECT backend_port, dashboard_port, postgres_port FROM instances ORDER BY backend_port ASC').all() as Pick<Instance, 'backend_port' | 'dashboard_port' | 'postgres_port'>[];
+  const instances = db.prepare('SELECT backend_port, dashboard_port, postgres_port, betterauth_port FROM instances ORDER BY backend_port ASC').all() as Pick<Instance, 'backend_port' | 'dashboard_port' | 'postgres_port' | 'betterauth_port'>[];
 
   let backendPort = 3220;
   for (const inst of instances) {
@@ -312,11 +331,20 @@ export function allocatePorts (): { backendPort: number; siteProxyPort: number; 
     }
   }
 
+  const betterauthInstances = db.prepare('SELECT betterauth_port FROM instances WHERE betterauth_port > 0 ORDER BY betterauth_port ASC').all() as Pick<Instance, 'betterauth_port'>[];
+  let betterauthPort = 4200;
+  for (const inst of betterauthInstances) {
+    if (inst.betterauth_port === betterauthPort) {
+      betterauthPort += 1;
+    }
+  }
+
   return {
     backendPort,
     siteProxyPort: backendPort + 1,
     dashboardPort,
     postgresPort,
+    betterauthPort,
   };
 }
 

@@ -189,6 +189,7 @@ router.post('/instances', (req: Request, res: Response) => {
     site_proxy_port: ports.siteProxyPort,
     dashboard_port: ports.dashboardPort,
     postgres_port: ports.postgresPort,
+    betterauth_port: ports.betterauthPort,
     volume_name: `convexer-${instanceName}`,
     postgres_volume_name: `convexer-postgres-${instanceName}`,
     postgres_password: crypto.randomBytes(32).toString('hex'),
@@ -1777,6 +1778,7 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
       { role: 'backend', name: `convexer-backend-${instance.name}`, id: instance.backend_container_id },
       { role: 'dashboard', name: `convexer-dashboard-${instance.name}`, id: instance.dashboard_container_id },
       { role: 'postgres', name: `convexer-postgres-${instance.name}`, id: instance.postgres_container_id },
+      { role: 'betterauth', name: `convexer-betterauth-${instance.name}`, id: instance.betterauth_container_id },
     ];
 
     const containers = await Promise.all(roles.map(async ({ role, name, id: cid }) =>
@@ -1875,6 +1877,7 @@ router.post('/instances/:id/duplicate', async (req: Request, res: Response) =>
       site_proxy_port: ports.siteProxyPort,
       dashboard_port: ports.dashboardPort,
       postgres_port: ports.postgresPort,
+      betterauth_port: ports.betterauthPort,
       volume_name: `convexer-${newName}-data`,
       postgres_volume_name: `convexer-postgres-${newName}`,
       postgres_password: crypto.randomBytes(32).toString('hex'),

@@ -455,6 +455,46 @@ export default function InstanceDetail() {
                       Admin dashboard for viewing data and logs
                     </p>
                   </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Auth Dashboard URL</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() =>
+                      {
+                        const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                        const url = env.BETTERAUTH_DOMAIN || `${instance.name}-auth.${hostname || 'convexer.example.com'}`;
+                        navigator.clipboard.writeText(`http://${url}/api/auth`);
+                      }}>
+                        Copy
+                      </Button>
+                    </div>
+                    <a
+                      href={`http://${(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.BETTERAUTH_DOMAIN || `${instance.name}-auth.${hostname || 'convexer.example.com'}`;
+                        } catch {
+                          return `${instance.name}-auth.${hostname || 'convexer.example.com'}`;
+                        }
+                      })()}/api/auth`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline font-mono block"
+                    >
+                      {(() =>
+                      {
+                        try {
+                          const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                          return env.BETTERAUTH_DOMAIN || `${instance.name}-auth.${hostname || 'convexer.example.com'}`;
+                        } catch {
+                          return `${instance.name}-auth.${hostname || 'convexer.example.com'}`;
+                        }
+                      })()}/api/auth
+                    </a>
+                    <p className="text-xs text-muted-foreground">
+                      Better Auth sidecar — runs Node.js-only plugins (infra, SSO, etc.)
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
 

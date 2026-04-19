@@ -5,10 +5,12 @@ export interface Instance {
   backend_container_id: string | null;
   dashboard_container_id: string | null;
   postgres_container_id: string | null;
+  betterauth_container_id: string | null;
   backend_port: number;
   site_proxy_port: number;
   dashboard_port: number;
   postgres_port: number;
+  betterauth_port: number;
   volume_name: string;
   postgres_volume_name: string;
   postgres_password: string;

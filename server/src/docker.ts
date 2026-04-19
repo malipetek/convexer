@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { Instance } from './types.js';
 import { updateInstance, getAllInstances } from './db.js';
 import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames } from './tunnel.js';
-import { getBackendTraefikLabels, getDashboardTraefikLabels } from './traefik.js';
+import { getBackendTraefikLabels, getDashboardTraefikLabels, getBetterAuthTraefikLabels } from './traefik.js';
 
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
@@ -11,8 +11,7 @@ const NETWORK_NAME = 'convexer-net';
 const BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend:latest';
 const DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard:latest';
 const POSTGRES_IMAGE = 'postgres:16-alpine';
-// Better Auth is a library, not a standalone Docker service
-// const BETTERAUTH_IMAGE = 'ghcr.io/better-auth/better-auth:latest';
+const BETTERAUTH_IMAGE = 'convexer-better-auth-sidecar:latest';
 
 export async function ensureImages(): Promise<void> {
   for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE, POSTGRES_IMAGE]) {
@@ -219,6 +218,13 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
       status: 'running',
     });
 
+    // Create and start Better Auth sidecar
+    try {
+      await createBetterAuthSidecar(instance);
+    } catch (err: any) {
+      console.warn(`Failed to create Better Auth sidecar for ${instance.name}:`, err.message);
+    }
+
     // Add cloudflared tunnel routes
     try {
       addTunnelRoutes(instance);
@@ -317,6 +323,91 @@ function demuxStream(stream: NodeJS.ReadableStream): Promise<string> {
   });
 }
 
+export async function createBetterAuthSidecar (instance: Instance): Promise<void>
+{
+  const domain = process.env.DOMAIN || '';
+  const dbName = instance.instance_name.replace(/-/g, '_');
+  const databaseUrl = `postgres://postgres:${instance.postgres_password}@convexer-postgres-${instance.name}:5432/${dbName}`;
+
+  // Determine public base URL for the sidecar
+  let baseUrl = `http://localhost:${instance.betterauth_port}`;
+  if (domain) {
+    baseUrl = `http://${instance.name}-auth.${domain}`;
+  }
+
+  // Get BETTER_AUTH_SECRET from extra_env if provided, otherwise generate one
+  let betterAuthSecret: string | undefined;
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      betterAuthSecret = env.BETTER_AUTH_SECRET;
+    } catch {
+      // ignore
+    }
+  }
+  if (!betterAuthSecret) {
+    betterAuthSecret = crypto.randomBytes(32).toString('hex');
+  }
+
+  const betterauthTraefikLabels = getBetterAuthTraefikLabels(instance, domain);
+
+  let container: Docker.Container;
+  try {
+    container = await docker.createContainer({
+      Image: BETTERAUTH_IMAGE,
+      name: `convexer-betterauth-${instance.name}`,
+      ExposedPorts: { '4200/tcp': {} },
+      HostConfig: {
+        PortBindings: {
+          '4200/tcp': [{ HostPort: String(instance.betterauth_port) }],
+        },
+        RestartPolicy: { Name: 'unless-stopped' },
+      },
+      Env: [
+        `DATABASE_URL=${databaseUrl}`,
+        `BETTER_AUTH_SECRET=${betterAuthSecret}`,
+        `BASE_URL=${baseUrl}`,
+        `PORT=4200`,
+      ],
+      Labels: betterauthTraefikLabels,
+    });
+  } catch (err: any) {
+    if (err.statusCode === 404) {
+      console.warn(`Better Auth sidecar image '${BETTERAUTH_IMAGE}' not found. Skipping sidecar creation.`);
+      return;
+    }
+    throw err;
+  }
+
+  await container.start();
+
+  try {
+    const network = docker.getNetwork(NETWORK_NAME);
+    await network.connect({ Container: container.id });
+  } catch (err: any) {
+    console.warn(`Failed to connect Better Auth sidecar to network:`, err.message);
+  }
+
+  updateInstance(instance.id, { betterauth_container_id: container.id });
+  console.log(`Better Auth sidecar for ${instance.name} started on port ${instance.betterauth_port}`);
+}
+
+export async function removeBetterAuthSidecar (instance: Instance): Promise<void>
+{
+  const refs = [
+    instance.betterauth_container_id,
+    `convexer-betterauth-${instance.name}`,
+  ].filter(Boolean) as string[];
+
+  for (const ref of refs) {
+    try {
+      const container = docker.getContainer(ref);
+      try { await container.stop(); } catch { /* already stopped */ }
+      await container.remove({ force: true });
+    } catch { /* container doesn't exist */ }
+  }
+}
+
 export async function startInstance(instance: Instance): Promise<void> {
   // Check if containers exist before trying to start them
   // If they don't exist, recreate them using createAndStartInstance
@@ -349,10 +440,33 @@ export async function startInstance(instance: Instance): Promise<void> {
     const container = docker.getContainer(instance.dashboard_container_id);
     await container.start();
   }
+  if (instance.betterauth_container_id) {
+    try {
+      const container = docker.getContainer(instance.betterauth_container_id);
+      await container.start();
+    } catch (err: any) {
+      console.warn(`Failed to start Better Auth sidecar for ${instance.name}:`, err.message);
+    }
+  } else {
+    try {
+      await createBetterAuthSidecar(instance);
+    } catch (err: any) {
+      console.warn(`Failed to create Better Auth sidecar for ${instance.name}:`, err.message);
+    }
+  }
   updateInstance(instance.id, { status: 'running' });
 }
 
 export async function stopInstance(instance: Instance): Promise<void> {
+  if (instance.betterauth_container_id) {
+    try {
+      const container = docker.getContainer(instance.betterauth_container_id);
+      await container.stop();
+    } catch (err: any) {
+      if (!err.message?.includes('not running') && err.statusCode !== 304)
+        console.warn(`Failed to stop Better Auth sidecar for ${instance.name}:`, err.message);
+    }
+  }
   if (instance.dashboard_container_id) {
     try {
       const container = docker.getContainer(instance.dashboard_container_id);
@@ -381,6 +495,13 @@ export async function stopInstance(instance: Instance): Promise<void> {
 }
 
 export async function removeInstance(instance: Instance): Promise<void> {
+  // Remove Better Auth sidecar first
+  try {
+    await removeBetterAuthSidecar(instance);
+  } catch (err: any) {
+    console.warn(`Failed to remove Better Auth sidecar for ${instance.name}:`, err.message);
+  }
+
   // Try removing containers by ID and by name (fallback for failed creates)
   const containerIds = [instance.dashboard_container_id, instance.backend_container_id, instance.postgres_container_id].filter(Boolean) as string[];
   const containerNames = [`convexer-dashboard-${instance.name}`, `convexer-backend-${instance.name}`, `convexer-postgres-${instance.name}`];

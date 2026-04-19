@@ -1,4 +1,11 @@
 services:
+  better-auth-sidecar:
+    build:
+      context: ./better-auth-sidecar
+    image: convexer-better-auth-sidecar:latest
+    profiles:
+      - build-only
+
   traefik:
     image: traefik:latest
     container_name: convexer-traefik
