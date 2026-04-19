@@ -788,33 +788,98 @@ router.post('/version/update', async (_req: Request, res: Response) =>
   const updaterImage = process.env.UPDATER_IMAGE || 'docker:27-cli';
   console.log(`[update] Branch: ${branch}, Updater image: ${updaterImage}`);
 
-  // Script run inside the updater container. Uses the docker CLI + compose
-  // plugin from the image, and installs git on the fly.
-  const script = [
-    'set -eu',
-    'apk add --no-cache git >/dev/null',
-    'cd /repo',
-    'mkdir -p /repo/server/data',
-    'echo "[updater] saving current commit for rollback"',
-    'git rev-parse HEAD > /repo/server/data/.rollback_commit || true',
-    'echo "[updater] changing git remote to HTTPS"',
-    'git remote set-url origin https://github.com/malipetek/convexer.git',
-    'echo "[updater] git fetch"',
-    'git fetch origin',
-    `git checkout ${branch}`,
-    `git pull origin ${branch}`,
-    'echo "[updater] docker compose down"',
-    'docker compose -p convexer down --remove-orphans',
-    'echo "[updater] force-removing stale named containers"',
-    'docker rm -f convexer convexer-traefik 2>/dev/null || true',
-    'echo "[updater] docker rmi convexer-convexer:latest"',
-    'docker rmi convexer-convexer:latest || true',
-    'echo "[updater] docker compose build"',
-    'docker compose -p convexer build --no-cache 2>&1 | tee /repo/server/data/.update_logs',
-    'echo "[updater] docker compose up -d"',
-    'docker compose -p convexer up -d',
-    'echo "[updater] done"',
-  ].join(' && ');
+  // Blue-green deployment script:
+  // 1. Build new image with :pending tag (old container keeps running)
+  // 2. Start new container on port 4001 as convexer-pending
+  // 3. Health check the new container
+  // 4. If healthy: stop old, rename new, done
+  // 5. If unhealthy: remove new, keep old running, exit with error
+  const script = `
+set -eu
+apk add --no-cache git curl >/dev/null
+cd /repo
+mkdir -p /repo/server/data
+
+echo "[updater] saving current commit for rollback"
+git rev-parse HEAD > /repo/server/data/.rollback_commit || true
+
+echo "[updater] changing git remote to HTTPS"
+git remote set-url origin https://github.com/malipetek/convexer.git
+
+echo "[updater] git fetch and pull"
+git fetch origin
+git checkout ${branch}
+git pull origin ${branch}
+
+echo "[updater] building new image as convexer-convexer:pending"
+docker build -t convexer-convexer:pending --target builder -f Dockerfile . 2>&1 | tee /repo/server/data/.update_logs || {
+  echo "[updater] BUILD FAILED - old container still running"
+  exit 1
+}
+docker build -t convexer-convexer:pending -f Dockerfile . 2>&1 | tee -a /repo/server/data/.update_logs || {
+  echo "[updater] BUILD FAILED - old container still running"
+  exit 1
+}
+
+echo "[updater] starting new container on port 4001 as convexer-pending"
+docker rm -f convexer-pending 2>/dev/null || true
+docker run -d --name convexer-pending \\
+  --network convexer-net \\
+  -p 4001:4000 \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v convexer-data:/app/server/data \\
+  -v convexer-ssh:/root/.ssh \\
+  -v convexer-backups:/app/server/data/backups \\
+  -e DATA_DIR=/app/server/data \\
+  -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+  -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
+  -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+  convexer-convexer:pending
+
+echo "[updater] waiting for new container to start..."
+sleep 5
+
+echo "[updater] health checking new container on port 4001"
+HEALTH_OK=0
+for i in 1 2 3 4 5; do
+  if curl -sf http://localhost:4001/api/health >/dev/null 2>&1; then
+    HEALTH_OK=1
+    break
+  fi
+  echo "[updater] health check attempt $i failed, retrying..."
+  sleep 3
+done
+
+if [ "$HEALTH_OK" = "0" ]; then
+  echo "[updater] HEALTH CHECK FAILED - rolling back"
+  docker logs convexer-pending --tail 50 || true
+  docker rm -f convexer-pending || true
+  docker rmi convexer-convexer:pending || true
+  echo "[updater] old container still running on port 4000"
+  exit 1
+fi
+
+echo "[updater] health check passed! swapping containers..."
+
+echo "[updater] stopping old container"
+docker stop convexer 2>/dev/null || true
+docker rm convexer 2>/dev/null || true
+
+echo "[updater] stopping pending container to rebind port"
+docker stop convexer-pending
+
+echo "[updater] removing old image tag"
+docker rmi convexer-convexer:latest 2>/dev/null || true
+
+echo "[updater] tagging pending as latest"
+docker tag convexer-convexer:pending convexer-convexer:latest
+docker rmi convexer-convexer:pending || true
+
+echo "[updater] starting final container via docker compose"
+docker compose -p convexer up -d convexer traefik
+
+echo "[updater] blue-green deploy complete!"
+`;
 
   try {
     console.log('[update] Starting updater container...');
@@ -843,6 +908,7 @@ router.post('/version/update', async (_req: Request, res: Response) =>
       Tty: false,
       HostConfig: {
         AutoRemove: true,
+        NetworkMode: 'host', // needed for health check to reach localhost:4001
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
           `${hostProjectPath}:/repo`,
