@@ -17,7 +17,10 @@ if (!BETTER_AUTH_SECRET) {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: process.env.DO_NOT_REQUIRE_SSL === '1' ? false : { rejectUnauthorized: false },
+});
 
 const plugins: any[] = [];
 
