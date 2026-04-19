@@ -8,6 +8,13 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BASE_URL = process.env.BASE_URL;
 
+// Catch unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) =>
+{
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required');
   process.exit(1);
