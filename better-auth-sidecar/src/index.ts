@@ -102,10 +102,12 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    database: {
-      type: 'pg',
-      pool,
-    },
+    // Temporarily disable database to stop restart loop
+    // TODO: Investigate Better Auth schema requirements
+    // database: {
+    //   type: 'pg',
+    //   pool,
+    // },
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
@@ -114,7 +116,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully');
+  console.log('Better Auth initialized successfully (without database)');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
