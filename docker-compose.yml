@@ -1,10 +1,11 @@
 services:
   better-auth-sidecar:
     build:
-      context: ./better-auth-sidecar
+      context: .
+      target: betterauth-runtime
     image: convexer-better-auth-sidecar:latest
-    profiles:
-      - build-only
+    restart: "no"
+    entrypoint: ["echo", "better-auth-sidecar image ready"]
 
   traefik:
     image: traefik:latest

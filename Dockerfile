@@ -1,3 +1,20 @@
+# ── Better Auth sidecar stages ──────────────────────────────────────────────
+FROM node:22-alpine AS betterauth-builder
+WORKDIR /app
+COPY better-auth-sidecar/package.json ./
+RUN npm install
+COPY better-auth-sidecar/tsconfig.json ./
+COPY better-auth-sidecar/src ./src
+RUN npm run build
+
+FROM node:22-alpine AS betterauth-runtime
+WORKDIR /app
+COPY --from=betterauth-builder /app/node_modules ./node_modules
+COPY --from=betterauth-builder /app/dist ./dist
+EXPOSE 4200
+CMD ["node", "dist/index.js"]
+
+# ── Convexer stages ──────────────────────────────────────────────────────────
 # Build stage
 FROM node:22-alpine AS builder
 

@@ -353,7 +353,9 @@ router.get('/instances/:id/logs', async (req: Request, res: Response) => {
     ? instance.dashboard_container_id
     : container === 'postgres'
       ? instance.postgres_container_id
-      : instance.backend_container_id;
+      : container === 'betterauth'
+        ? instance.betterauth_container_id
+        : instance.backend_container_id;
 
   if (!containerId) {
     res.status(404).json({ error: `No ${container} container found` });
@@ -382,7 +384,9 @@ router.get('/instances/:id/logs/download', async (req: Request, res: Response) =
     ? instance.dashboard_container_id
     : container === 'postgres'
       ? instance.postgres_container_id
-      : instance.backend_container_id;
+      : container === 'betterauth'
+        ? instance.betterauth_container_id
+        : instance.backend_container_id;
 
   if (!containerId) {
     res.status(404).json({ error: `No ${container} container found` });
@@ -411,7 +415,11 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) =>
   const container = req.query.container as string || 'backend';
   const containerId = container === 'dashboard'
     ? instance.dashboard_container_id
-    : instance.backend_container_id;
+    : container === 'postgres'
+      ? instance.postgres_container_id
+      : container === 'betterauth'
+        ? instance.betterauth_container_id
+        : instance.backend_container_id;
 
   if (!containerId) {
     res.status(404).json({ error: `No ${container} container found` });
