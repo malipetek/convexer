@@ -41,7 +41,7 @@ try {
 // Create Better Auth tables if they don't exist
 try {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS user (
+    CREATE TABLE IF NOT EXISTS "user" (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       email_verified BOOLEAN DEFAULT FALSE,
