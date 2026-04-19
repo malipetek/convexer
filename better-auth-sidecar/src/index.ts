@@ -42,19 +42,26 @@ try {
 }
 */
 
-const auth = betterAuth({
-  database: {
-    type: 'pg',
-    pool,
-  },
-  secret: BETTER_AUTH_SECRET,
-  baseURL: BASE_URL,
-  emailAndPassword: {
-    enabled: true,
-  },
-  plugins,
-  trustedOrigins: ['*'],
-});
+let auth;
+try {
+  auth = betterAuth({
+    database: {
+      type: 'pg',
+      pool,
+    },
+    secret: BETTER_AUTH_SECRET,
+    baseURL: BASE_URL,
+    emailAndPassword: {
+      enabled: true,
+    },
+    plugins,
+    trustedOrigins: ['*'],
+  });
+  console.log('Better Auth initialized successfully');
+} catch (err: any) {
+  console.error('Failed to initialize Better Auth:', err.message, err.stack);
+  process.exit(1);
+}
 
 const app = express();
 
