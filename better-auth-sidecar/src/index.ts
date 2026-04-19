@@ -29,6 +29,15 @@ const pool = new Pool({
   ssl: process.env.DO_NOT_REQUIRE_SSL === '1' ? false : { rejectUnauthorized: false },
 });
 
+// Verify database connection
+try {
+  await pool.query('SELECT 1');
+  console.log('Database connection verified');
+} catch (err: any) {
+  console.error('Failed to connect to database:', err.message, err.stack);
+  process.exit(1);
+}
+
 const plugins: any[] = [];
 
 // Dynamically load @better-auth/infra if available
