@@ -31,25 +31,18 @@ const pool = new Pool({
 
 const plugins: any[] = [];
 
-// Dynamically load @better-auth/infra if available
+// Dynamically load @better-auth/infra dash plugin if available
 try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const infraModule = await import('@better-auth/infra') as any;
-  console.log('[@better-auth/infra] Module keys:', Object.keys(infraModule));
-  console.log('[@better-auth/infra] Default:', typeof infraModule.default);
-  if (infraModule.default) {
-    console.log('[@better-auth/infra] Default keys:', Object.keys(infraModule.default));
-  }
-
-  const infraFn = infraModule.infra ?? infraModule.default?.infra ?? infraModule.default;
-  if (typeof infraFn === 'function') {
-    plugins.push(infraFn());
-    console.log('Loaded @better-auth/infra plugin');
+  const { dash } = await import('@better-auth/infra') as any;
+  if (typeof dash === 'function') {
+    plugins.push(dash());
+    console.log('Loaded @better-auth/infra dash plugin');
   } else {
-    console.warn('@better-auth/infra loaded but no callable export found');
+    console.warn('@better-auth/infra dash is not a function');
   }
 } catch (err: any) {
-  console.warn('@better-auth/infra not available, running without infra plugin:', err.message);
+  console.warn('@better-auth/infra not available, running without dash plugin:', err.message);
 }
 
 // Test database connection before initializing Better Auth

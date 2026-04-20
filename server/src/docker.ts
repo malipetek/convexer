@@ -400,7 +400,22 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
 {
   const domain = process.env.DOMAIN || '';
   const dbName = instance.instance_name.replace(/-/g, '_');
-  const databaseUrl = `postgres://postgres:${instance.postgres_password}@convexer-postgres-${instance.name}:5432/${dbName}?sslmode=disable`;
+
+  // Fetch actual postgres password from the postgres container environment
+  let postgresPassword = instance.postgres_password;
+  try {
+    const pgContainer = docker.getContainer(`convexer-postgres-${instance.name}`);
+    const pgInfo = await pgContainer.inspect();
+    const pgEnv = pgInfo.Config.Env || [];
+    const passwordEnv = pgEnv.find((e: string) => e.startsWith('POSTGRES_PASSWORD='));
+    if (passwordEnv) {
+      postgresPassword = passwordEnv.split('=')[1];
+    }
+  } catch (err: any) {
+    console.warn(`Failed to fetch postgres password from container, using stored password:`, err.message);
+  }
+
+  const databaseUrl = `postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432/${dbName}?sslmode=disable`;
 
   // Determine public base URL for the sidecar
   let baseUrl = `http://localhost:${instance.betterauth_port}`;
