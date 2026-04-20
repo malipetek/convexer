@@ -943,23 +943,38 @@ function InstanceSettings ({ instance }: { instance: any })
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="custom-env">Custom Environment Variables (JSON)</Label>
-            <Input
+            <Label htmlFor="custom-env">Custom Environment Variables</Label>
+            <textarea
               id="custom-env"
-              placeholder='{"KEY": "value"}'
-              value={Object.keys(extraEnv).filter(k => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k)).length > 0 ? JSON.stringify(Object.fromEntries(Object.entries(extraEnv).filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))), null) : ''}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="KEY=value"
+              value={Object.entries(extraEnv)
+                .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+                .map(([k, v]) => `${k}=${v}`)
+                .join('\n')}
+              onChange={(e) =>
               {
-                try {
-                  const parsed = JSON.parse(e.target.value);
-                  setExtraEnv(prev => ({ ...prev, ...parsed }));
-                } catch {
-                  // Invalid JSON, ignore
+                const lines = e.target.value.split('\n');
+                const parsed: Record<string, string> = {};
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  const eqIndex = line.indexOf('=');
+                  if (eqIndex === -1) continue;
+                  const key = line.slice(0, eqIndex).trim();
+                  const value = line.slice(eqIndex + 1).trim();
+                  parsed[key] = value;
                 }
+                setExtraEnv(prev =>
+                {
+                  const withoutCustom = Object.fromEntries(
+                    Object.entries(prev).filter(([k]) => ['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+                  );
+                  return { ...withoutCustom, ...parsed };
+                });
               }}
             />
             <p className="text-sm text-muted-foreground">
-              Add custom environment variables as JSON (e.g., {'{{"BETTER_AUTH_API_KEY": "your-key"}}'})
+              Add custom environment variables (one per line, format: KEY=value)
             </p>
           </div>
 
