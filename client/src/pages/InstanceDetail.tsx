@@ -930,6 +930,40 @@ function InstanceSettings ({ instance }: { instance: any })
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="betterauth-domain">Better Auth Custom Domain (optional)</Label>
+            <Input
+              id="betterauth-domain"
+              placeholder="auth.example.com"
+              value={extraEnv.BETTERAUTH_DOMAIN || ''}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('BETTERAUTH_DOMAIN', e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Set a custom domain for the Better Auth sidecar (leave empty for default subdomain)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="custom-env">Custom Environment Variables (JSON)</Label>
+            <Input
+              id="custom-env"
+              placeholder='{"KEY": "value"}'
+              value={Object.keys(extraEnv).filter(k => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k)).length > 0 ? JSON.stringify(Object.fromEntries(Object.entries(extraEnv).filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))), null) : ''}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              {
+                try {
+                  const parsed = JSON.parse(e.target.value);
+                  setExtraEnv(prev => ({ ...prev, ...parsed }));
+                } catch {
+                  // Invalid JSON, ignore
+                }
+              }}
+            />
+            <p className="text-sm text-muted-foreground">
+              Add custom environment variables as JSON (e.g., {"{"}BETTER_AUTH_API_KEY": "your-key{"}})
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="health-check-timeout">Backend Health Check Timeout (ms)</Label>
             <Input
               id="health-check-timeout"
