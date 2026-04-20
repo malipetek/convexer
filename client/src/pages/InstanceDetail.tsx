@@ -959,7 +959,7 @@ function InstanceSettings ({ instance }: { instance: any })
               }}
             />
             <p className="text-sm text-muted-foreground">
-              Add custom environment variables as JSON (e.g., {"{"}BETTER_AUTH_API_KEY": "your-key{"}})
+              Add custom environment variables as JSON (e.g., {'{{"BETTER_AUTH_API_KEY": "your-key"}}'})
             </p>
           </div>
 
