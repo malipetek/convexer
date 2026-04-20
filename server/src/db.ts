@@ -349,6 +349,25 @@ export function archiveInstance (id: string): boolean
   return result.changes > 0;
 }
 
+export function restoreArchivedInstance (id: string, newName?: string): boolean
+{
+  const updates = "archived_at = NULL, status = 'creating'";
+  const stmt = newName
+    ? db.prepare(`UPDATE instances SET ${updates}, name = ?, instance_name = ?, volume_name = 'convexer-' || ?, postgres_volume_name = 'convexer-postgres-' || ?, updated_at = datetime('now') WHERE id = ?`)
+    : db.prepare(`UPDATE instances SET ${updates}, updated_at = datetime('now') WHERE id = ?`);
+
+  const result = newName
+    ? stmt.run(newName, newName, newName, newName, id)
+    : stmt.run(id);
+
+  return result.changes > 0;
+}
+
+export function getInstanceByName (name: string): Instance | undefined
+{
+  return db.prepare('SELECT * FROM instances WHERE name = ? AND archived_at IS NULL').get(name) as Instance | undefined;
+}
+
 export function getInstance(id: string): Instance | undefined {
   return db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance | undefined;
 }

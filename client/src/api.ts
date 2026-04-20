@@ -71,6 +71,8 @@ export const api = {
   getArchivedInstances: () => request<ArchivedInstance[]>('/archived-instances'),
   permanentlyDeleteInstance: (id: string) =>
     request<void>(`/archived-instances/${id}`, { method: 'DELETE' }),
+  restoreArchivedInstance: (id: string) =>
+    request<{ instance: Instance; renamed?: string }>(`/archived-instances/${id}/restore`, { method: 'POST' }),
   forgetInstance: (id: string) =>
     request<void>(`/instances/${id}/forget`, { method: 'POST' }),
   getLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' = 'backend', tail = 200) =>

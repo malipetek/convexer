@@ -10,10 +10,12 @@ import
   getAllInstances,
   getArchivedInstances,
   getInstance,
+  getInstanceByName,
   createInstance,
   updateInstance,
   deleteInstance,
   archiveInstance,
+  restoreArchivedInstance,
   allocatePorts,
   getBackupConfig,
   createBackupConfig,
@@ -337,6 +339,58 @@ router.delete('/archived-instances/:id', async (req: Request, res: Response) =>
 
   deleteInstance(instance.id);
   res.status(204).send();
+});
+
+// Restore an archived instance
+router.post('/archived-instances/:id/restore', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance || !instance.archived_at) {
+    res.status(404).json({ error: 'Archived instance not found' });
+    return;
+  }
+
+  // Check for naming conflicts with active instances
+  let finalName = instance.name;
+  let conflict = getInstanceByName(instance.name);
+
+  // Generate a random name if there's a conflict
+  if (conflict) {
+    const adjectives = ['swift', 'calm', 'bright', 'eager', 'gentle', 'happy', 'kind', 'lively', 'proud', 'wise'];
+    const nouns = ['bear', 'fox', 'hawk', 'lion', 'owl', 'tiger', 'wolf', 'eagle', 'deer', 'rabbit'];
+    const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+    const randomSuffix = Math.floor(Math.random() * 1000);
+    finalName = `${randomAdj}-${randomNoun}-${randomSuffix}`;
+  }
+
+  // Unarchive the instance (set archived_at to null, update name if needed)
+  const restored = restoreArchivedInstance(instance.id, conflict ? finalName : undefined);
+  if (!restored) {
+    res.status(500).json({ error: 'Failed to restore instance' });
+    return;
+  }
+
+  // Get the updated instance
+  const updatedInstance = getInstance(instance.id);
+  if (!updatedInstance) {
+    res.status(500).json({ error: 'Failed to retrieve restored instance' });
+    return;
+  }
+
+  // Recreate containers and volumes
+  try {
+    await createAndStartInstance(updatedInstance);
+  } catch (err: any) {
+    console.error('Failed to recreate instance:', err);
+    res.status(500).json({ error: err.message });
+    return;
+  }
+
+  res.json({
+    instance: updatedInstance,
+    renamed: conflict ? finalName : undefined,
+  });
 });
 
 // Get logs

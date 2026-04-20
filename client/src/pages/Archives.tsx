@@ -4,7 +4,7 @@ import { ArchivedInstance } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Archive, Database, Trash2, CheckCircle, XCircle, HardDrive } from 'lucide-react';
+import { Archive, Database, Trash2, CheckCircle, XCircle, HardDrive, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
 function formatBytes(bytes: number | null) {
@@ -49,6 +49,21 @@ export default function Archives() {
       setConfirming(null);
     },
     onError: (err: any) => alert(err.message || 'Failed to delete'),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => api.restoreArchivedInstance(id),
+    onSuccess: (data) =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['archived-instances'] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      if (data.renamed) {
+        alert(`Instance restored with new name: ${data.renamed} (original name was already in use)`);
+      } else {
+        alert('Instance restored successfully');
+      }
+    },
+    onError: (err: any) => alert(err.message || 'Failed to restore'),
   });
 
   if (isLoading) {
@@ -147,15 +162,26 @@ export default function Archives() {
                     </div>
                   </div>
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => setConfirming(instance.id)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Permanently Delete
-                  </Button>
+                    <div className="space-y-2">
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={restoreMutation.isPending}
+                        onClick={() => restoreMutation.mutate(instance.id)}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        {restoreMutation.isPending ? 'Restoring…' : 'Restore Instance'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setConfirming(instance.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Permanently Delete
+                      </Button>
+                    </div>
                 )}
               </CardContent>
             </Card>
