@@ -1,6 +1,6 @@
 {
   "name": "better-auth-sidecar",
-  "version": "1.0.0",
+  "version": "1.6.3",
   "private": true,
   "type": "module",
   "scripts": {

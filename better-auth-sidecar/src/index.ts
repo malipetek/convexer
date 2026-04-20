@@ -3,6 +3,13 @@ import { betterAuth } from 'better-auth';
 import { Pool } from 'pg';
 import { toNodeHandler } from 'better-auth/node';
 
+// Catch unhandled promise rejections (Better Auth may throw async errors)
+process.on('unhandledRejection', (reason, promise) =>
+{
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - let the server continue running
+});
+
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4200;
 const DATABASE_URL = process.env.DATABASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
@@ -42,15 +49,22 @@ try {
 }
 */
 
+// Test database connection before initializing Better Auth
+try {
+  const client = await pool.connect();
+  const result = await client.query('SELECT NOW()');
+  console.log('Database connection successful:', result.rows[0].now);
+  client.release();
+} catch (err: any) {
+  console.error('Database connection failed:', err.message);
+  process.exit(1);
+}
+
 let auth;
 try {
   auth = betterAuth({
-    // Database adapter disabled - Better Auth has async initialization issue
-    // TODO: Investigate and fix database adapter initialization
-    // database: {
-    //   type: 'pg',
-    //   pool,
-    // },
+    // Pass Pool directly - Better Auth uses Kysely internally
+    database: pool,
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
@@ -59,7 +73,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully (without database)');
+  console.log('Better Auth initialized successfully');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
