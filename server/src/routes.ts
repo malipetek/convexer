@@ -813,11 +813,15 @@ git pull origin ${branch}
 
 echo "[updater] building new image as convexer-convexer:pending"
 docker build -t convexer-convexer:pending --target builder -f Dockerfile . 2>&1 | tee /repo/server/data/.update_logs || {
-  echo "[updater] BUILD FAILED - old container still running"
+  echo "[updater] BUILD FAILED - rolling back git"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
+  echo "[updater] old container still running"
   exit 1
 }
 docker build -t convexer-convexer:pending -f Dockerfile . 2>&1 | tee -a /repo/server/data/.update_logs || {
-  echo "[updater] BUILD FAILED - old container still running"
+  echo "[updater] BUILD FAILED - rolling back git"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
+  echo "[updater] old container still running"
   exit 1
 }
 
@@ -855,6 +859,8 @@ if [ "$HEALTH_OK" = "0" ]; then
   docker logs convexer-pending --tail 50 || true
   docker rm -f convexer-pending || true
   docker rmi convexer-convexer:pending || true
+  echo "[updater] rolling back git to previous commit"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
   echo "[updater] old container still running on port 4000"
   exit 1
 fi
