@@ -98,36 +98,29 @@ try {
     socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
     plugins,
     trustedOrigins: ['*'],
-    // Use camelCase column names to match Convex's database schema
+    // Map Better Auth field names to the existing snake_case PostgreSQL schema
     user: {
       fields: {
-        emailVerified: 'emailVerified',
-        createdAt: 'createdAt',
-        updatedAt: 'updatedAt',
+        emailVerified: 'email_verified',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
       },
     },
     session: {
       fields: {
-        userId: 'userId',
-        expiresAt: 'expiresAt',
-        ipAddress: 'ipAddress',
-        userAgent: 'userAgent',
-        createdAt: 'createdAt',
-        updatedAt: 'updatedAt',
+        userId: 'user_id',
+        expiresAt: 'expires_at',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
       },
     },
     account: {
       fields: {
-        userId: 'userId',
-        accountId: 'accountId',
-        providerId: 'providerId',
-        accessToken: 'accessToken',
-        refreshToken: 'refreshToken',
-        idToken: 'idToken',
-        expiresAt: 'expiresAt',
-        password: 'password',
-        createdAt: 'createdAt',
-        updatedAt: 'updatedAt',
+        userId: 'user_id',
+        accountId: 'account_id',
+        providerId: 'provider_id',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
       },
     },
   });
