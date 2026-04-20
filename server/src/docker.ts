@@ -440,10 +440,18 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
 
   // Get BETTER_AUTH_SECRET from extra_env if provided, otherwise generate one
   let betterAuthSecret: string | undefined;
+  const extraEnv: Record<string, string> = {};
   if (instance.extra_env) {
     try {
       const env = JSON.parse(instance.extra_env);
       betterAuthSecret = env.BETTER_AUTH_SECRET;
+      // Extract Apple OAuth variables
+      if (env.APPLE_CLIENT_ID) extraEnv.APPLE_CLIENT_ID = env.APPLE_CLIENT_ID;
+      if (env.APPLE_CLIENT_SECRET) extraEnv.APPLE_CLIENT_SECRET = env.APPLE_CLIENT_SECRET;
+      if (env.APPLE_APP_BUNDLE_IDENTIFIER) extraEnv.APPLE_APP_BUNDLE_IDENTIFIER = env.APPLE_APP_BUNDLE_IDENTIFIER;
+      // Extract Google OAuth variables
+      if (env.GOOGLE_CLIENT_ID) extraEnv.GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID;
+      if (env.GOOGLE_CLIENT_SECRET) extraEnv.GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
     } catch {
       // ignore
     }
@@ -472,6 +480,7 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
         `BASE_URL=${baseUrl}`,
         `PORT=4200`,
         'DO_NOT_REQUIRE_SSL=1',
+        ...Object.entries(extraEnv).map(([key, value]) => `${key}=${value}`),
       ],
       Labels: betterauthTraefikLabels,
     });
