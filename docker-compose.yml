@@ -123,9 +123,10 @@ services:
       DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
       REDIS_URL: redis://glitchtip-redis:6379/0
-      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN}
+      GLITCHTIP_DOMAIN: https://glitchtip.${DOMAIN}
       DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-errors@example.com}
       EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+      CSRF_TRUSTED_ORIGINS: https://glitchtip.${DOMAIN},http://glitchtip.${DOMAIN}
     labels:
       - traefik.enable=true
       - traefik.http.routers.glitchtip.rule=Host(`glitchtip.${DOMAIN}`)
@@ -146,7 +147,7 @@ services:
       DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
       REDIS_URL: redis://glitchtip-redis:6379/0
-      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN}
+      GLITCHTIP_DOMAIN: https://glitchtip.${DOMAIN}
     networks:
       - convexer-net
 

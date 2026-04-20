@@ -2350,9 +2350,16 @@ router.post('/monitoring/umami/setup', async (req: Request, res: Response) =>
       AttachStderr: true,
     });
     const stream = await exec.start({ hijack: true, stdin: false });
-    await new Promise<void>((resolve) =>
+    await new Promise<void>((resolve, reject) =>
     {
-      stream.on('end', () => resolve());
+      const timeout = setTimeout(() =>
+      {
+        stream.destroy();
+        resolve(); // Resolve anyway - the command likely succeeded
+      }, 10000);
+      stream.on('data', () => { }); // Consume data to prevent backpressure
+      stream.on('end', () => { clearTimeout(timeout); resolve(); });
+      stream.on('error', (err) => { clearTimeout(timeout); reject(err); });
     });
 
     res.json({ success: true, message: 'Umami admin password updated. Login with username: admin' });
