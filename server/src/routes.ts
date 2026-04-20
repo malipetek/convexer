@@ -877,12 +877,86 @@ docker stop convexer-pending
 echo "[updater] removing old image tag"
 docker rmi convexer-convexer:latest 2>/dev/null || true
 
-echo "[updater] tagging pending as latest"
+echo "[updater] tagging pending as latest (keeping pending tag for rollback)"
 docker tag convexer-convexer:pending convexer-convexer:latest
-docker rmi convexer-convexer:pending || true
 
-echo "[updater] starting final container via docker compose"
-docker compose -p convexer up -d --force-recreate convexer traefik
+echo "[updater] starting final container"
+docker run -d --name convexer \\
+  --network convexer-net \\
+  -p 4000:4000 \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v convexer-data:/app/server/data \\
+  -v convexer-ssh:/root/.ssh \\
+  -v convexer-backups:/app/server/data/backups \\
+  -e DATA_DIR=/app/server/data \\
+  -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+  -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
+  -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+  --restart unless-stopped \\
+  convexer-convexer:latest || {
+  echo "[updater] FAILED TO START FINAL CONTAINER - rolling back"
+  echo "[updater] restarting pending container on port 4000 as fallback"
+  docker rm -f convexer 2>/dev/null || true
+  docker run -d --name convexer \\
+    --network convexer-net \\
+    -p 4000:4000 \\
+    -v /var/run/docker.sock:/var/run/docker.sock \\
+    -v convexer-data:/app/server/data \\
+    -v convexer-ssh:/root/.ssh \\
+    -v convexer-backups:/app/server/data/backups \\
+    -e DATA_DIR=/app/server/data \\
+    -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+    -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
+    -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+    --restart unless-stopped \\
+    convexer-convexer:pending
+  echo "[updater] rolling back git to previous commit"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
+  echo "[updater] fallback container running on port 4000"
+  exit 1
+}
+
+echo "[updater] waiting for final container to start..."
+sleep 5
+
+echo "[updater] health checking final container on port 4000"
+HEALTH_OK=0
+for i in 1 2 3 4 5; do
+  if curl -sf http://localhost:4000/api/health >/dev/null 2>&1; then
+    HEALTH_OK=1
+    break
+  fi
+  echo "[updater] health check attempt $i failed, retrying..."
+  sleep 3
+done
+
+if [ "$HEALTH_OK" = "0" ]; then
+  echo "[updater] FINAL CONTAINER HEALTH CHECK FAILED - rolling back"
+  docker logs convexer --tail 50 || true
+  echo "[updater] restarting pending container as fallback"
+  docker rm -f convexer || true
+  docker run -d --name convexer \\
+    --network convexer-net \\
+    -p 4000:4000 \\
+    -v /var/run/docker.sock:/var/run/docker.sock \\
+    -v convexer-data:/app/server/data \\
+    -v convexer-ssh:/root/.ssh \\
+    -v convexer-backups:/app/server/data/backups \\
+    -e DATA_DIR=/app/server/data \\
+    -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+    -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
+    -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+    --restart unless-stopped \\
+    convexer-convexer:pending
+  echo "[updater] rolling back git to previous commit"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
+  echo "[updater] fallback container running on port 4000"
+  exit 1
+fi
+
+echo "[updater] cleaning up"
+docker rm -f convexer-pending 2>/dev/null || true
+docker rmi convexer-convexer:pending 2>/dev/null || true
 
 echo "[updater] blue-green deploy complete!"
 `;
