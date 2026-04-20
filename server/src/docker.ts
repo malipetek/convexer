@@ -110,9 +110,9 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     const volumeName = instance.volume_name;
     const postgresVolumeName = instance.postgres_volume_name;
 
-    // Create volumes
-    await docker.createVolume({ Name: volumeName });
-    await docker.createVolume({ Name: postgresVolumeName });
+    // Create volumes (idempotent - Docker ignores if already exists)
+    await docker.createVolume({ Name: volumeName }).catch(() => { });
+    await docker.createVolume({ Name: postgresVolumeName }).catch(() => { });
 
     const isLinux = process.platform === 'linux';
     const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
@@ -122,31 +122,36 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     const postgresPassword = instance.postgres_password || crypto.randomBytes(32).toString('hex');
     updateInstance(instance.id, { postgres_password: postgresPassword });
 
-    // Create and start PostgreSQL container
+    // Check if PostgreSQL container already exists
+    let postgresContainer = await getContainerByRole(instance, 'postgres');
+    if (!postgresContainer) {
+    // Create PostgreSQL container
     // No PortBindings: PostgreSQL is only accessible within the Docker network
-    const postgresContainer = await docker.createContainer({
-      Image: POSTGRES_IMAGE,
-      name: `convexer-postgres-${instance.name}`,
-      HostConfig: {
-        Binds: [`${postgresVolumeName}:/var/lib/postgresql/data`],
-        RestartPolicy: { Name: 'unless-stopped' },
-      },
-      Env: [
-        `POSTGRES_PASSWORD=${postgresPassword}`,
-        `POSTGRES_DB=${instance.instance_name.replace(/-/g, '_')}`,
-        `POSTGRES_USER=postgres`,
-      ],
-    });
+      postgresContainer = await docker.createContainer({
+        Image: POSTGRES_IMAGE,
+        name: `convexer-postgres-${instance.name}`,
+        HostConfig: {
+          Binds: [`${postgresVolumeName}:/var/lib/postgresql/data`],
+          RestartPolicy: { Name: 'unless-stopped' },
+        },
+        Env: [
+          `POSTGRES_PASSWORD=${postgresPassword}`,
+          `POSTGRES_DB=${instance.instance_name.replace(/-/g, '_')}`,
+          `POSTGRES_USER=postgres`,
+        ],
+      });
 
-    await postgresContainer.start();
-
-    // Attach to network
-    try {
-      const network = docker.getNetwork(NETWORK_NAME);
-      await network.connect({ Container: postgresContainer.id });
-    } catch (err: any) {
-      console.warn(`Failed to connect PostgreSQL to network:`, err.message);
+      // Attach to network
+      try {
+        const network = docker.getNetwork(NETWORK_NAME);
+        await network.connect({ Container: postgresContainer.id });
+      } catch (err: any) {
+        console.warn(`Failed to connect PostgreSQL to network:`, err.message);
+      }
     }
+
+    // Start postgres (idempotent - ignores if already running)
+    await postgresContainer.start().catch(() => { });
 
     updateInstance(instance.id, { postgres_container_id: postgresContainer.id });
 
@@ -204,33 +209,38 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
 
     const { backend: backendImage, dashboard: dashboardImage } = getImages(instance);
 
-    // Create and start backend container
-    const backendContainer = await docker.createContainer({
-      Image: backendImage,
-      name: `convexer-backend-${instance.name}`,
-      ExposedPorts: { '3210/tcp': {}, '3211/tcp': {} },
-      HostConfig: {
-        PortBindings: {
-          '3210/tcp': [{ HostPort: String(instance.backend_port) }],
-          '3211/tcp': [{ HostPort: String(instance.site_proxy_port) }],
+    // Check if backend container already exists
+    let backendContainer = await getContainerByRole(instance, 'backend');
+    if (!backendContainer) {
+      // Create backend container
+      backendContainer = await docker.createContainer({
+        Image: backendImage,
+        name: `convexer-backend-${instance.name}`,
+        ExposedPorts: { '3210/tcp': {}, '3211/tcp': {} },
+        HostConfig: {
+          PortBindings: {
+            '3210/tcp': [{ HostPort: String(instance.backend_port) }],
+            '3211/tcp': [{ HostPort: String(instance.site_proxy_port) }],
+          },
+          Binds: [`${volumeName}:/convex/data`],
+          RestartPolicy: { Name: 'unless-stopped' },
+          ExtraHosts: extraHosts,
         },
-        Binds: [`${volumeName}:/convex/data`],
-        RestartPolicy: { Name: 'unless-stopped' },
-        ExtraHosts: extraHosts,
-      },
-      Env: backendEnv,
-      Labels: backendTraefikLabels,
-    });
+        Env: backendEnv,
+        Labels: backendTraefikLabels,
+      });
 
-    await backendContainer.start();
-
-    // Attach to network
-    try {
-      const network = docker.getNetwork(NETWORK_NAME);
-      await network.connect({ Container: backendContainer.id });
-    } catch (err: any) {
-      console.warn(`Failed to connect backend to network:`, err.message);
+      // Attach to network
+      try {
+        const network = docker.getNetwork(NETWORK_NAME);
+        await network.connect({ Container: backendContainer.id });
+      } catch (err: any) {
+        console.warn(`Failed to connect backend to network:`, err.message);
+      }
     }
+
+    // Start backend (idempotent - ignores if already running)
+    await backendContainer.start().catch(() => { });
 
     updateInstance(instance.id, { backend_container_id: backendContainer.id });
 
@@ -254,37 +264,42 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
       publicSiteProxyUrl = `https://${instance.name}-site.${domain}`;
     }
 
-    // Create and start dashboard container
+    // Check if dashboard container already exists
     const dashboardTraefikLabels = getDashboardTraefikLabels(instance, domain);
-    const dashboardContainer = await docker.createContainer({
-      Image: dashboardImage,
-      name: `convexer-dashboard-${instance.name}`,
-      ExposedPorts: { '6791/tcp': {} },
-      HostConfig: {
-        PortBindings: {
-          '6791/tcp': [{ HostPort: String(instance.dashboard_port) }],
+    let dashboardContainer = await getContainerByRole(instance, 'dashboard');
+    if (!dashboardContainer) {
+      // Create dashboard container
+      dashboardContainer = await docker.createContainer({
+        Image: dashboardImage,
+        name: `convexer-dashboard-${instance.name}`,
+        ExposedPorts: { '6791/tcp': {} },
+        HostConfig: {
+          PortBindings: {
+            '6791/tcp': [{ HostPort: String(instance.dashboard_port) }],
+          },
+          RestartPolicy: { Name: 'unless-stopped' },
+          ExtraHosts: extraHosts,
         },
-        RestartPolicy: { Name: 'unless-stopped' },
-        ExtraHosts: extraHosts,
-      },
-      Env: [
-        `CONVEX_PROVISION_HOST=http://host.docker.internal:${instance.backend_port}`,
-        `CONVEX_SITE_PROXY_HOST=http://host.docker.internal:${instance.site_proxy_port}`,
-        `NEXT_PUBLIC_PROVISION_HOST=${publicBackendUrl}`,
-        `NEXT_PUBLIC_SITE_PROXY_HOST=${publicSiteProxyUrl}`,
-      ],
-      Labels: dashboardTraefikLabels,
-    });
+        Env: [
+          `CONVEX_PROVISION_HOST=http://host.docker.internal:${instance.backend_port}`,
+          `CONVEX_SITE_PROXY_HOST=http://host.docker.internal:${instance.site_proxy_port}`,
+          `NEXT_PUBLIC_PROVISION_HOST=${publicBackendUrl}`,
+          `NEXT_PUBLIC_SITE_PROXY_HOST=${publicSiteProxyUrl}`,
+        ],
+        Labels: dashboardTraefikLabels,
+      });
 
-    await dashboardContainer.start();
-
-    // Attach to network
-    try {
-      const network = docker.getNetwork(NETWORK_NAME);
-      await network.connect({ Container: dashboardContainer.id });
-    } catch (err: any) {
-      console.warn(`Failed to connect dashboard to network:`, err.message);
+      // Attach to network
+      try {
+        const network = docker.getNetwork(NETWORK_NAME);
+        await network.connect({ Container: dashboardContainer.id });
+      } catch (err: any) {
+        console.warn(`Failed to connect dashboard to network:`, err.message);
+      }
     }
+
+    // Start dashboard (idempotent - ignores if already running)
+    await dashboardContainer.start().catch(() => { });
 
     updateInstance(instance.id, {
       dashboard_container_id: dashboardContainer.id,
