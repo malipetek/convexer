@@ -36,7 +36,16 @@ try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { dash } = await import('@better-auth/infra') as any;
   if (typeof dash === 'function') {
-    plugins.push(dash());
+    const dashConfig: any = {
+      apiKey: BETTER_AUTH_SECRET,
+    };
+    // Optional: add API URL and KV URL if provided
+    const apiUrl = process.env.BETTER_AUTH_API_URL;
+    const kvUrl = process.env.BETTER_AUTH_KV_URL;
+    if (apiUrl) dashConfig.apiUrl = apiUrl;
+    if (kvUrl) dashConfig.kvUrl = kvUrl;
+
+    plugins.push(dash(dashConfig));
     console.log('Loaded @better-auth/infra dash plugin');
   } else {
     console.warn('@better-auth/infra dash is not a function');
