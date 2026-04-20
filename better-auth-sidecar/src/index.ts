@@ -98,6 +98,51 @@ try {
     socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
     plugins,
     trustedOrigins: ['*'],
+    // Use camelCase column names to match Convex's database schema
+    schema: {
+      user: {
+        fields: {
+          email: 'email',
+          emailVerified: 'emailVerified',
+          createdAt: 'createdAt',
+          updatedAt: 'updatedAt',
+        },
+      },
+      session: {
+        fields: {
+          userId: 'userId',
+          token: 'token',
+          expiresAt: 'expiresAt',
+          ipAddress: 'ipAddress',
+          userAgent: 'userAgent',
+          createdAt: 'createdAt',
+          updatedAt: 'updatedAt',
+        },
+      },
+      account: {
+        fields: {
+          userId: 'userId',
+          accountId: 'accountId',
+          providerId: 'providerId',
+          accessToken: 'accessToken',
+          refreshToken: 'refreshToken',
+          idToken: 'idToken',
+          expiresAt: 'expiresAt',
+          password: 'password',
+          createdAt: 'createdAt',
+          updatedAt: 'updatedAt',
+        },
+      },
+      verification: {
+        fields: {
+          identifier: 'identifier',
+          value: 'value',
+          expiresAt: 'expiresAt',
+          createdAt: 'createdAt',
+          updatedAt: 'updatedAt',
+        },
+      },
+    },
   });
   console.log('Better Auth initialized successfully');
 } catch (err: any) {
