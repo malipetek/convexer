@@ -876,6 +876,8 @@ docker run -d --name convexer-pending \\
   -e DOMAIN=\${DOMAIN} \\
   -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
   -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+  -e GITHUB_REPO=\${GITHUB_REPO} \\
+  -e GITHUB_TOKEN=\${GITHUB_TOKEN} \\
   convexer-convexer:pending
 
 echo "[updater] waiting for new container to start..."
@@ -1036,6 +1038,13 @@ echo "[updater] blue-green deploy complete!"
       Cmd: ['sh', '-c', script],
       WorkingDir: '/repo',
       Tty: false,
+      Env: [
+        `GITHUB_REPO=${process.env.GITHUB_REPO || 'malipetek/convexer'}`,
+        `GITHUB_TOKEN=${process.env.GITHUB_TOKEN || ''}`,
+        `DOMAIN=${process.env.DOMAIN || ''}`,
+        `HOST_PROJECT_PATH=${process.env.HOST_PROJECT_PATH || '/home/convexer'}`,
+        `UPDATE_BRANCH=${process.env.UPDATE_BRANCH || 'main'}`,
+      ],
       HostConfig: {
         AutoRemove: false, // Temporarily disabled for debugging
         NetworkMode: 'host', // needed for health check to reach localhost:4001

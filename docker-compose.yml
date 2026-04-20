@@ -45,7 +45,7 @@ services:
       - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
       - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
-      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_REPO=${GITHUB_REPO:-malipetek/convexer}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # Absolute path of the repo on the HOST machine. The in-app updater
       # bind-mounts this into an ephemeral container to run git pull +
