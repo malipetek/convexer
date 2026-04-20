@@ -45,11 +45,10 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    // Database adapter temporarily disabled pending schema investigation
-    // database: {
-    //   type: 'pg',
-    //   pool,
-    // },
+    database: {
+      type: 'pg',
+      pool,
+    },
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
