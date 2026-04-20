@@ -8,6 +8,13 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BASE_URL = process.env.BASE_URL;
 
+// Catch unhandled promise rejections to see the actual error
+process.on('unhandledRejection', (reason, promise) =>
+{
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required');
   process.exit(1);
@@ -45,10 +52,11 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    database: {
-      type: 'pg',
-      pool,
-    },
+    // Database adapter disabled pending investigation of async initialization error
+    // database: {
+    //   type: 'pg',
+    //   pool,
+    // },
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
@@ -57,7 +65,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully');
+  console.log('Better Auth initialized successfully (without database)');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
