@@ -806,23 +806,29 @@ function InstanceSettings ({ instance }: { instance: any })
       return {};
     }
   });
-  const customEnvRef = useRef<HTMLTextAreaElement>(null);
+  const [customEnvPairs, setCustomEnvPairs] = useState<Array<[string, string]>>(() =>
+  {
+    try {
+      const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+      return Object.entries(env)
+        .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+        .map(([k, v]) => [k, v] as [string, string]);
+    } catch {
+      return [];
+    }
+  });
   const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
   const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Parse customEnvRef value into extraEnv before saving
-      const lines = customEnvRef.current?.value.split('\n') || [];
+      // Parse customEnvPairs into extraEnv before saving
       const parsed: Record<string, string> = {};
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const eqIndex = line.indexOf('=');
-        if (eqIndex === -1) continue;
-        const key = line.slice(0, eqIndex).trim();
-        const value = line.slice(eqIndex + 1).trim();
-        parsed[key] = value;
+      for (const [key, value] of customEnvPairs) {
+        if (key.trim()) {
+          parsed[key.trim()] = value;
+        }
       }
       const finalExtraEnv = {
         ...Object.fromEntries(
@@ -961,27 +967,52 @@ function InstanceSettings ({ instance }: { instance: any })
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="custom-env">Custom Environment Variables</Label>
-            <textarea
-              id="custom-env"
-              ref={customEnvRef}
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="KEY=value"
-              defaultValue={(() =>
-              {
-                try {
-                  const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-                  return Object.entries(env)
-                    .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
-                    .map(([k, v]) => `${k}=${v}`)
-                    .join('\n');
-                } catch {
-                  return '';
-                }
-              })()}
-            />
+            <Label>Custom Environment Variables</Label>
+            {customEnvPairs.map(([key, value], index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  placeholder="KEY"
+                  value={key}
+                  onChange={(e) =>
+                  {
+                    const newPairs = [...customEnvPairs];
+                    newPairs[index] = [e.target.value, value];
+                    setCustomEnvPairs(newPairs);
+                  }}
+                />
+                <Input
+                  placeholder="VALUE"
+                  value={value}
+                  onChange={(e) =>
+                  {
+                    const newPairs = [...customEnvPairs];
+                    newPairs[index] = [key, e.target.value];
+                    setCustomEnvPairs(newPairs);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() =>
+                  {
+                    const newPairs = customEnvPairs.filter((_, i) => i !== index);
+                    setCustomEnvPairs(newPairs);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCustomEnvPairs([...customEnvPairs, ['', '']])}
+            >
+              Add Environment Variable
+            </Button>
             <p className="text-sm text-muted-foreground">
-              Add custom environment variables (one per line, format: KEY=value)
+              Add custom environment variables as key-value pairs
             </p>
           </div>
 
