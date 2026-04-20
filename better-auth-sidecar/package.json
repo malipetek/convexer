@@ -9,8 +9,8 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "better-auth": "^1.2.7",
-    "@better-auth/infra": "^0.1.0",
+    "better-auth": "^1.6.5",
+    "@better-auth/infra": "^0.2.4",
     "express": "^4.18.2",
     "pg": "^8.13.0"
   },
