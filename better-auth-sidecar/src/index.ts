@@ -29,6 +29,31 @@ const pool = new Pool({
   ssl: process.env.DO_NOT_REQUIRE_SSL === '1' ? false : { rejectUnauthorized: false },
 });
 
+async function ensureBetterAuthSchema ()
+{
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS verification (
+      id TEXT PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      value TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS ip_address TEXT');
+  await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS user_agent TEXT');
+
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS access_token TEXT');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS refresh_token TEXT');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS id_token TEXT');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS access_token_expires_at TIMESTAMP');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS refresh_token_expires_at TIMESTAMP');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS scope TEXT');
+  await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS password TEXT');
+}
+
 const plugins: any[] = [];
 
 // Dynamically load @better-auth/infra dash plugin if available
@@ -60,6 +85,7 @@ try {
   const result = await client.query('SELECT NOW()');
   console.log('Database connection successful:', result.rows[0].now);
   client.release();
+  await ensureBetterAuthSchema();
 } catch (err: any) {
   console.error('Database connection failed:', err.message);
   process.exit(1);
@@ -110,6 +136,8 @@ try {
       fields: {
         userId: 'user_id',
         expiresAt: 'expires_at',
+        ipAddress: 'ip_address',
+        userAgent: 'user_agent',
         createdAt: 'created_at',
         updatedAt: 'updated_at',
       },
@@ -119,6 +147,20 @@ try {
         userId: 'user_id',
         accountId: 'account_id',
         providerId: 'provider_id',
+        accessToken: 'access_token',
+        refreshToken: 'refresh_token',
+        idToken: 'id_token',
+        accessTokenExpiresAt: 'access_token_expires_at',
+        refreshTokenExpiresAt: 'refresh_token_expires_at',
+        scope: 'scope',
+        password: 'password',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+      },
+    },
+    verification: {
+      fields: {
+        expiresAt: 'expires_at',
         createdAt: 'created_at',
         updatedAt: 'updated_at',
       },
