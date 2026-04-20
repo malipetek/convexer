@@ -468,7 +468,7 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
       },
       Env: [
         `DATABASE_URL=${databaseUrl}`,
-        `BETTER_AUTH_SECRET=${betterAuthSecret}`,
+        `BETTER_AUTH_API_KEY=${betterAuthSecret}`,
         `BASE_URL=${baseUrl}`,
         `PORT=4200`,
         'DO_NOT_REQUIRE_SSL=1',
