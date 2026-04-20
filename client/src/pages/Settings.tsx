@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink, Terminal } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink, Terminal, Key, Mail, CheckCircle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -314,6 +314,165 @@ const GLITCHTIP_CONTAINERS = [
   { value: 'glitchtip-db', label: 'Database' },
   { value: 'glitchtip-redis', label: 'Redis' },
 ];
+
+function UmamiSetup ({ adminExists, onSuccess }: { adminExists?: boolean; onSuccess: () => void })
+{
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleSetup = async () =>
+  {
+    if (password.length < 8) {
+      setMessage('Password must be at least 8 characters');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await api.setupUmami(password);
+      setMessage(result.message);
+      setPassword('');
+      onSuccess();
+    } catch (err: any) {
+      setMessage(err.message || 'Setup failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="p-3 bg-muted/50 rounded-lg border">
+      <div className="flex items-center gap-2 mb-2">
+        <Key className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Admin Setup</span>
+        {adminExists && (
+          <Badge variant="secondary" className="ml-auto text-xs">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            configured
+          </Badge>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mb-2">
+        {adminExists
+          ? 'Admin account exists. You can change the password below.'
+          : 'Set a new password for the default admin account (username: admin).'
+        }
+      </p>
+      <div className="flex gap-2">
+        <Input
+          type="password"
+          placeholder="New password (min 8 chars)"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="flex-1 h-8 text-sm"
+        />
+        <Button size="sm" onClick={handleSetup} disabled={saving || password.length < 8}>
+          {saving ? 'Saving...' : adminExists ? 'Update' : 'Set Password'}
+        </Button>
+      </div>
+      {message && (
+        <p className={`text-xs mt-2 ${message.includes('failed') || message.includes('must be') ? 'text-red-500' : 'text-green-500'}`}>
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GlitchtipSetup ({ adminExists, onSuccess }: { adminExists?: boolean; onSuccess: () => void })
+{
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleSetup = async () =>
+  {
+    if (!email.includes('@')) {
+      setMessage('Valid email is required');
+      return;
+    }
+    if (password.length < 8) {
+      setMessage('Password must be at least 8 characters');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await api.setupGlitchtip(email, password);
+      setMessage(result.message);
+      setEmail('');
+      setPassword('');
+      onSuccess();
+    } catch (err: any) {
+      setMessage(err.message || 'Setup failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (adminExists) {
+    return (
+      <div className="p-3 bg-muted/50 rounded-lg border">
+        <div className="flex items-center gap-2">
+          <Key className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Admin Setup</span>
+          <Badge variant="secondary" className="ml-auto text-xs">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            configured
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Admin account exists. Use the GlitchTip web interface to manage users.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 bg-muted/50 rounded-lg border">
+      <div className="flex items-center gap-2 mb-2">
+        <Key className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Admin Setup</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-2">
+        Create an admin account to access GlitchTip.
+      </p>
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Mail className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Input
+              type="email"
+              placeholder="admin@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="h-8 text-sm pl-7"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            type="password"
+            placeholder="Password (min 8 chars)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="flex-1 h-8 text-sm"
+          />
+          <Button size="sm" onClick={handleSetup} disabled={saving || !email.includes('@') || password.length < 8}>
+            {saving ? 'Creating...' : 'Create Admin'}
+          </Button>
+        </div>
+      </div>
+      {message && (
+        <p className={`text-xs mt-2 ${message.includes('failed') || message.includes('required') || message.includes('must be') || message.includes('already exists') ? 'text-red-500' : 'text-green-500'}`}>
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function MonitoringLogs ({ containers }: { containers: { value: string; label: string }[] })
 {
@@ -668,10 +827,10 @@ export default function Settings() {
                       <div className="font-mono">{monitoringStatus?.umami.db_status ?? '—'}</div>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Default login: <span className="font-mono">admin / umami</span> — change immediately after first login.
-                    Create one Website per app, use the tracking script or API with the website ID.
-                  </p>
+
+                  {/* Umami Setup */}
+                  <UmamiSetup adminExists={monitoringStatus?.umami.admin_exists} onSuccess={() => refetchMonitoring()} />
+
                   <MonitoringLogs containers={UMAMI_CONTAINERS} />
                 </CardContent>
               </Card>
@@ -728,10 +887,10 @@ export default function Settings() {
                       <div className="font-mono">{monitoringStatus?.glitchtip.redis_status ?? '—'}</div>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Sentry-compatible — use any Sentry SDK with DSN from GlitchTip.
-                    Create an Organization, then one Project per app to get separate DSNs.
-                  </p>
+
+                  {/* GlitchTip Setup */}
+                  <GlitchtipSetup adminExists={monitoringStatus?.glitchtip.admin_exists} onSuccess={() => refetchMonitoring()} />
+
                   <MonitoringLogs containers={GLITCHTIP_CONTAINERS} />
                 </CardContent>
               </Card>

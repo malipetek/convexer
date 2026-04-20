@@ -2270,12 +2270,51 @@ router.get('/monitoring/status', async (_req: Request, res: Response) =>
     }
   }
 
+  // Check if admin accounts exist
+  let umamiAdminExists = false;
+  let glitchtipAdminExists = false;
+
+  try {
+    const umamiDb = docker.getContainer('convexer-umami-db');
+    const exec = await umamiDb.exec({
+      Cmd: ['psql', '-U', 'umami', '-d', 'umami', '-t', '-c', 'SELECT COUNT(*) FROM "user" WHERE role = \'admin\''],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const output = await new Promise<string>((resolve) =>
+    {
+      let data = '';
+      stream.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      stream.on('end', () => resolve(data));
+    });
+    umamiAdminExists = parseInt(output.replace(/\D/g, '') || '0', 10) > 0;
+  } catch { /* ignore */ }
+
+  try {
+    const glitchtipDb = docker.getContainer('convexer-glitchtip-db');
+    const exec = await glitchtipDb.exec({
+      Cmd: ['psql', '-U', 'glitchtip', '-d', 'glitchtip', '-t', '-c', 'SELECT COUNT(*) FROM users_user WHERE is_superuser = true'],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const output = await new Promise<string>((resolve) =>
+    {
+      let data = '';
+      stream.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      stream.on('end', () => resolve(data));
+    });
+    glitchtipAdminExists = parseInt(output.replace(/\D/g, '') || '0', 10) > 0;
+  } catch { /* ignore */ }
+
   res.json({
     umami: {
       url: umamiUrl,
       running: statuses.umami.running,
       status: statuses.umami.status,
       db_status: statuses.umami_db.status,
+      admin_exists: umamiAdminExists,
     },
     glitchtip: {
       url: glitchtipUrl,
@@ -2284,8 +2323,83 @@ router.get('/monitoring/status', async (_req: Request, res: Response) =>
       worker_status: statuses.glitchtip_worker.status,
       db_status: statuses.glitchtip_db.status,
       redis_status: statuses.glitchtip_redis.status,
+      admin_exists: glitchtipAdminExists,
     },
   });
+});
+
+// Setup Umami admin account (change password)
+router.post('/monitoring/umami/setup', async (req: Request, res: Response) =>
+{
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+
+    // Umami uses bcrypt for password hashing - we need to hash it properly
+    // The default admin password is 'umami' - we'll update it via the database
+    const bcrypt = await import('bcrypt');
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const umamiDb = docker.getContainer('convexer-umami-db');
+    const exec = await umamiDb.exec({
+      Cmd: ['psql', '-U', 'umami', '-d', 'umami', '-c', `UPDATE "user" SET password = '${hashedPassword}' WHERE username = 'admin'`],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve) =>
+    {
+      stream.on('end', () => resolve());
+    });
+
+    res.json({ success: true, message: 'Umami admin password updated. Login with username: admin' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Setup GlitchTip admin account
+router.post('/monitoring/glitchtip/setup', async (req: Request, res: Response) =>
+{
+  try {
+    const { email, password } = req.body;
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+    if (!password || password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+
+    // Use Django's createsuperuser with environment variables for non-interactive mode
+    const glitchtipWeb = docker.getContainer('convexer-glitchtip-web');
+    const exec = await glitchtipWeb.exec({
+      Cmd: ['./manage.py', 'createsuperuser', '--noinput', '--email', email],
+      Env: [`DJANGO_SUPERUSER_PASSWORD=${password}`],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const output = await new Promise<string>((resolve) =>
+    {
+      let data = '';
+      stream.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      stream.on('end', () => resolve(data));
+    });
+
+    if (output.includes('already exists') || output.includes('duplicate key')) {
+      res.status(400).json({ error: 'An admin account with this email already exists' });
+      return;
+    }
+
+    res.json({ success: true, message: `GlitchTip admin account created. Login with email: ${email}` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

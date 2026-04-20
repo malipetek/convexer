@@ -246,9 +246,17 @@ export const api = {
   getMonitoringLogs: (container: string, tail = 300) =>
     request<{ logs: string }>(`/monitoring/logs?container=${container}&tail=${tail}`),
   getMonitoringStatus: () => request<{
-    umami: { url: string; running: boolean; status: string; db_status: string };
-    glitchtip: { url: string; running: boolean; status: string; worker_status: string; db_status: string; redis_status: string };
+    umami: { url: string; running: boolean; status: string; db_status: string; admin_exists: boolean };
+    glitchtip: { url: string; running: boolean; status: string; worker_status: string; db_status: string; redis_status: string; admin_exists: boolean };
   }>('/monitoring/status'),
+  setupUmami: (password: string) => request<{ success: boolean; message: string }>('/monitoring/umami/setup', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  }),
+  setupGlitchtip: (email: string, password: string) => request<{ success: boolean; message: string }>('/monitoring/glitchtip/setup', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  }),
   duplicateInstance: (id: string, newName: string) => request<{ instance: any }>(`/instances/${id}/duplicate`, {
     method: 'POST',
     body: JSON.stringify({ newName }),

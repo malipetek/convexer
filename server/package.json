@@ -8,6 +8,8 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "dockerode": "^4.0.4",
