@@ -806,26 +806,15 @@ function InstanceSettings ({ instance }: { instance: any })
       return {};
     }
   });
-  const [customEnvText, setCustomEnvText] = useState(() =>
-  {
-    try {
-      const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
-      return Object.entries(env)
-        .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
-        .map(([k, v]) => `${k}=${v}`)
-        .join('\n');
-    } catch {
-      return '';
-    }
-  });
+  const customEnvRef = useRef<HTMLTextAreaElement>(null);
   const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
   const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Parse customEnvText into extraEnv before saving
-      const lines = customEnvText.split('\n');
+      // Parse customEnvRef value into extraEnv before saving
+      const lines = customEnvRef.current?.value.split('\n') || [];
       const parsed: Record<string, string> = {};
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -975,10 +964,21 @@ function InstanceSettings ({ instance }: { instance: any })
             <Label htmlFor="custom-env">Custom Environment Variables</Label>
             <textarea
               id="custom-env"
+              ref={customEnvRef}
               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="KEY=value"
-              value={customEnvText}
-              onChange={(e) => setCustomEnvText(e.target.value)}
+              defaultValue={(() =>
+              {
+                try {
+                  const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+                  return Object.entries(env)
+                    .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join('\n');
+                } catch {
+                  return '';
+                }
+              })()}
             />
             <p className="text-sm text-muted-foreground">
               Add custom environment variables (one per line, format: KEY=value)
