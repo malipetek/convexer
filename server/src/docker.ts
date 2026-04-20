@@ -8,6 +8,62 @@ import { getBackendTraefikLabels, getDashboardTraefikLabels, getBetterAuthTraefi
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
 
+/**
+ * Get container by name, with optional fallback to stored ID.
+ * Always prefers name-based lookup since names are deterministic and survive container recreation.
+ * Also syncs the database if the stored ID doesn't match the actual container.
+ */
+export async function getContainerByRole (
+  instance: Instance,
+  role: 'backend' | 'dashboard' | 'postgres' | 'betterauth'
+): Promise<Docker.Container | null>
+{
+  const containerName = `convexer-${role}-${instance.name}`;
+  const storedIdKey = `${role}_container_id` as keyof Instance;
+  const storedId = instance[storedIdKey] as string | null;
+
+  // Try by name first (most reliable)
+  try {
+    const container = docker.getContainer(containerName);
+    const info = await container.inspect();
+
+    // Sync database if stored ID doesn't match actual container
+    if (storedId !== info.Id) {
+      console.log(`Syncing ${role} container ID for ${instance.name}: ${storedId?.slice(0, 12) || 'null'} -> ${info.Id.slice(0, 12)}`);
+      updateInstance(instance.id, { [storedIdKey]: info.Id });
+    }
+
+    return container;
+  } catch {
+    // Container doesn't exist by name
+  }
+
+  // Fallback to stored ID (in case container was renamed)
+  if (storedId) {
+    try {
+      const container = docker.getContainer(storedId);
+      await container.inspect();
+      return container;
+    } catch {
+      // Container doesn't exist by ID either
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if a container exists by name or stored ID
+ */
+export async function containerExists (
+  instance: Instance,
+  role: 'backend' | 'dashboard' | 'postgres' | 'betterauth'
+): Promise<boolean>
+{
+  const container = await getContainerByRole(instance, role);
+  return container !== null;
+}
+
 const BACKEND_IMAGE_BASE = 'ghcr.io/get-convex/convex-backend';
 const DASHBOARD_IMAGE_BASE = 'ghcr.io/get-convex/convex-dashboard';
 const POSTGRES_IMAGE = 'postgres:16-alpine';
@@ -427,15 +483,14 @@ export async function removeBetterAuthSidecar (instance: Instance): Promise<void
 }
 
 export async function startInstance(instance: Instance): Promise<void> {
-  // Check if containers exist before trying to start them
-  // If they don't exist, recreate them using createAndStartInstance
-  const containersExist = await Promise.all([
-    instance.postgres_container_id ? docker.getContainer(instance.postgres_container_id).inspect().catch(() => null) : null,
-    instance.backend_container_id ? docker.getContainer(instance.backend_container_id).inspect().catch(() => null) : null,
-    instance.dashboard_container_id ? docker.getContainer(instance.dashboard_container_id).inspect().catch(() => null) : null,
+  // Check if containers exist by name (more reliable than stored IDs)
+  const [postgresContainer, backendContainer, dashboardContainer] = await Promise.all([
+    getContainerByRole(instance, 'postgres'),
+    getContainerByRole(instance, 'backend'),
+    getContainerByRole(instance, 'dashboard'),
   ]);
 
-  const allExist = containersExist.every(c => c !== null);
+  const allExist = postgresContainer && backendContainer && dashboardContainer;
 
   if (!allExist) {
     // Some containers are missing, recreate the entire instance
@@ -445,23 +500,17 @@ export async function startInstance(instance: Instance): Promise<void> {
   }
 
   // All containers exist, start them
-  if (instance.postgres_container_id) {
-    const container = docker.getContainer(instance.postgres_container_id);
-    await container.start();
-    await waitForPostgres(instance.name, 60_000);
-  }
-  if (instance.backend_container_id) {
-    const container = docker.getContainer(instance.backend_container_id);
-    await container.start();
-  }
-  if (instance.dashboard_container_id) {
-    const container = docker.getContainer(instance.dashboard_container_id);
-    await container.start();
-  }
-  if (instance.betterauth_container_id) {
+  await postgresContainer.start().catch(() => { });
+  await waitForPostgres(instance.name, 60_000);
+
+  await backendContainer.start().catch(() => { });
+  await dashboardContainer.start().catch(() => { });
+
+  // Start or create Better Auth sidecar
+  const betterauthContainer = await getContainerByRole(instance, 'betterauth');
+  if (betterauthContainer) {
     try {
-      const container = docker.getContainer(instance.betterauth_container_id);
-      await container.start();
+      await betterauthContainer.start();
     } catch (err: any) {
       console.warn(`Failed to start Better Auth sidecar for ${instance.name}:`, err.message);
     }
@@ -476,37 +525,23 @@ export async function startInstance(instance: Instance): Promise<void> {
 }
 
 export async function stopInstance(instance: Instance): Promise<void> {
-  if (instance.betterauth_container_id) {
-    try {
-      const container = docker.getContainer(instance.betterauth_container_id);
-      await container.stop();
-    } catch (err: any) {
-      if (!err.message?.includes('not running') && err.statusCode !== 304)
-        console.warn(`Failed to stop Better Auth sidecar for ${instance.name}:`, err.message);
-    }
-  }
-  if (instance.dashboard_container_id) {
-    try {
-      const container = docker.getContainer(instance.dashboard_container_id);
-      await container.stop();
-    } catch (err: any) {
-      if (!err.message?.includes('not running') && err.statusCode !== 304) throw err;
-    }
-  }
-  if (instance.backend_container_id) {
-    try {
-      const container = docker.getContainer(instance.backend_container_id);
-      await container.stop();
-    } catch (err: any) {
-      if (!err.message?.includes('not running') && err.statusCode !== 304) throw err;
-    }
-  }
-  if (instance.postgres_container_id) {
-    try {
-      const container = docker.getContainer(instance.postgres_container_id);
-      await container.stop();
-    } catch (err: any) {
-      if (!err.message?.includes('not running') && err.statusCode !== 304) throw err;
+  // Stop containers by name (more reliable than stored IDs)
+  const roles: Array<'betterauth' | 'dashboard' | 'backend' | 'postgres'> = ['betterauth', 'dashboard', 'backend', 'postgres'];
+
+  for (const role of roles) {
+    const container = await getContainerByRole(instance, role);
+    if (container) {
+      try {
+        await container.stop();
+      } catch (err: any) {
+        if (!err.message?.includes('not running') && err.statusCode !== 304) {
+          if (role === 'betterauth') {
+            console.warn(`Failed to stop Better Auth sidecar for ${instance.name}:`, err.message);
+          } else {
+            throw err;
+          }
+        }
+      }
     }
   }
   updateInstance(instance.id, { status: 'stopped' });
@@ -591,14 +626,15 @@ export async function syncInstanceStatuses(): Promise<void> {
     if (instance.status === 'creating') continue; // Don't interfere with creation
 
     let backendRunning = false;
-    if (instance.backend_container_id) {
-      try {
-        const container = docker.getContainer(instance.backend_container_id);
+    try {
+      // Use getContainerByRole which looks up by name and auto-syncs DB
+      const container = await getContainerByRole(instance, 'backend');
+      if (container) {
         const info = await container.inspect();
         backendRunning = info.State.Running;
-      } catch (err: any) {
-        if (err.statusCode !== 404) console.warn(`Failed to check backend status for ${instance.name}:`, err.message);
       }
+    } catch (err: any) {
+      if (err.statusCode !== 404) console.warn(`Failed to check backend status for ${instance.name}:`, err.message);
     }
 
     const newStatus = backendRunning ? 'running' : 'stopped';

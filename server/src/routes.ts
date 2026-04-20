@@ -43,7 +43,8 @@ import
   syncInstanceStatuses,
   getContainerLogs,
   ensureImages,
-  pullImage
+  pullImage,
+  getContainerByRole
 } from './docker.js';
 import
 {
@@ -2077,17 +2078,17 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
     const instance = getInstance(id);
     if (!instance) { res.status(404).json({ error: 'Instance not found' }); return; }
 
-    const roles = [
-      { role: 'backend', name: `convexer-backend-${instance.name}`, id: instance.backend_container_id },
-      { role: 'dashboard', name: `convexer-dashboard-${instance.name}`, id: instance.dashboard_container_id },
-      { role: 'postgres', name: `convexer-postgres-${instance.name}`, id: instance.postgres_container_id },
-      { role: 'betterauth', name: `convexer-betterauth-${instance.name}`, id: instance.betterauth_container_id },
-    ];
+    const roles: Array<'backend' | 'dashboard' | 'postgres' | 'betterauth'> = ['backend', 'dashboard', 'postgres', 'betterauth'];
 
-    const containers = await Promise.all(roles.map(async ({ role, name, id: cid }) =>
+    const containers = await Promise.all(roles.map(async (role) =>
     {
+      const containerName = `convexer-${role}-${instance.name}`;
       try {
-        const c = docker.getContainer(cid || name);
+        // Use getContainerByRole which looks up by name first and auto-syncs DB
+        const c = await getContainerByRole(instance, role);
+        if (!c) {
+          return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
+        }
         const info = await c.inspect();
         const portBindings = info.HostConfig?.PortBindings || {};
         const ports = Object.entries(portBindings).map(([containerPort, bindings]: [string, any]) => ({
@@ -2105,7 +2106,7 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
           ports,
         };
       } catch {
-        return { role, name, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
+        return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
       }
     }));
 
