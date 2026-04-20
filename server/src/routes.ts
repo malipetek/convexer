@@ -1037,7 +1037,7 @@ echo "[updater] blue-green deploy complete!"
       WorkingDir: '/repo',
       Tty: false,
       HostConfig: {
-        AutoRemove: true,
+        AutoRemove: false, // Temporarily disabled for debugging
         NetworkMode: 'host', // needed for health check to reach localhost:4001
         Binds: [
           '/var/run/docker.sock:/var/run/docker.sock',
