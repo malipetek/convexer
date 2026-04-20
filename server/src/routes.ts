@@ -404,20 +404,14 @@ router.get('/instances/:id/logs', async (req: Request, res: Response) => {
 
   const container = req.query.container as string || 'backend';
   const tail = parseInt(req.query.tail as string) || 200;
-  const containerId = container === 'dashboard'
-    ? instance.dashboard_container_id
-    : container === 'postgres'
-      ? instance.postgres_container_id
-      : container === 'betterauth'
-        ? instance.betterauth_container_id
-        : instance.backend_container_id;
-
-  if (!containerId) {
-    res.status(404).json({ error: `No ${container} container found` });
-    return;
-  }
 
   try {
+    const containerObj = await getContainerByRole(instance, container as 'backend' | 'dashboard' | 'postgres' | 'betterauth');
+    if (!containerObj) {
+      res.status(404).json({ error: `No ${container} container found` });
+      return;
+    }
+    const containerId = (await containerObj.inspect()).Id;
     const logs = await getContainerLogs(containerId, tail);
     res.json({ logs });
   } catch (err: any) {
@@ -435,20 +429,14 @@ router.get('/instances/:id/logs/download', async (req: Request, res: Response) =
   }
 
   const container = req.query.container as string || 'backend';
-  const containerId = container === 'dashboard'
-    ? instance.dashboard_container_id
-    : container === 'postgres'
-      ? instance.postgres_container_id
-      : container === 'betterauth'
-        ? instance.betterauth_container_id
-        : instance.backend_container_id;
-
-  if (!containerId) {
-    res.status(404).json({ error: `No ${container} container found` });
-    return;
-  }
 
   try {
+    const containerObj = await getContainerByRole(instance, container as 'backend' | 'dashboard' | 'postgres' | 'betterauth');
+    if (!containerObj) {
+      res.status(404).json({ error: `No ${container} container found` });
+      return;
+    }
+    const containerId = (await containerObj.inspect()).Id;
     const logs = await getContainerLogs(containerId, 10000);
     res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Content-Disposition', `attachment; filename="${instance.name}-${container}-logs-${Date.now()}.txt"`);
@@ -468,22 +456,14 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) =>
   }
 
   const container = req.query.container as string || 'backend';
-  const containerId = container === 'dashboard'
-    ? instance.dashboard_container_id
-    : container === 'postgres'
-      ? instance.postgres_container_id
-      : container === 'betterauth'
-        ? instance.betterauth_container_id
-        : instance.backend_container_id;
-
-  if (!containerId) {
-    res.status(404).json({ error: `No ${container} container found` });
-    return;
-  }
 
   try {
-    const dockerContainer = docker.getContainer(containerId);
-    await dockerContainer.restart();
+    const containerObj = await getContainerByRole(instance, container as 'backend' | 'dashboard' | 'postgres' | 'betterauth');
+    if (!containerObj) {
+      res.status(404).json({ error: `No ${container} container found` });
+      return;
+    }
+    await containerObj.restart();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -531,8 +511,8 @@ router.put('/instances/:id/settings', async (req: Request, res: Response) =>
 
   // Stop and remove backend container
   try {
-    if (instance.backend_container_id) {
-      const container = docker.getContainer(instance.backend_container_id);
+    const container = await getContainerByRole(instance, 'backend');
+    if (container) {
       await container.stop();
       await container.remove();
     }
@@ -601,24 +581,24 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
     updateInstance(instance.id, { pinned_version: targetVersion });
 
     // Stop and recreate backend/dashboard with new version
-    if (instance.backend_container_id) {
-      try {
-        const backend = docker.getContainer(instance.backend_container_id);
+    try {
+      const backend = await getContainerByRole(instance, 'backend');
+      if (backend) {
         await backend.stop();
         await backend.remove();
-      } catch (err: any) {
-        console.warn('Failed to stop/remove backend:', err.message);
       }
+    } catch (err: any) {
+      console.warn('Failed to stop/remove backend:', err.message);
     }
 
-    if (instance.dashboard_container_id) {
-      try {
-        const dashboard = docker.getContainer(instance.dashboard_container_id);
+    try {
+      const dashboard = await getContainerByRole(instance, 'dashboard');
+      if (dashboard) {
         await dashboard.stop();
         await dashboard.remove();
-      } catch (err: any) {
-        console.warn('Failed to stop/remove dashboard:', err.message);
       }
+    } catch (err: any) {
+      console.warn('Failed to stop/remove dashboard:', err.message);
     }
 
     // Recreate with new version
@@ -650,13 +630,12 @@ router.get('/instances/:id/stats', async (req: Request, res: Response) =>
     return;
   }
 
-  if (!instance.backend_container_id) {
-    res.status(404).json({ error: 'No backend container found' });
-    return;
-  }
-
   try {
-    const container = docker.getContainer(instance.backend_container_id);
+    const container = await getContainerByRole(instance, 'backend');
+    if (!container) {
+      res.status(404).json({ error: 'No backend container found' });
+      return;
+    }
     const stats = await container.stats({ stream: false });
 
     const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
@@ -1814,10 +1793,12 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
 
     // Stop backend + dashboard so they release DB/volume handles and stale cache
     const docker = new Docker();
-    const toStop = [instance.dashboard_container_id, instance.backend_container_id].filter(Boolean) as string[];
-    for (const cid of toStop) {
-      try { await docker.getContainer(cid).stop({ t: 10 }); }
-      catch (e: any) { if (!e.message?.includes('not running') && e.statusCode !== 304 && e.statusCode !== 404) throw e; }
+    const toStop = ['dashboard', 'backend'] as const;
+    for (const role of toStop) {
+      try {
+        const container = await getContainerByRole(instance, role);
+        if (container) await container.stop({ t: 10 });
+      } catch (e: any) { if (!e.message?.includes('not running') && e.statusCode !== 304 && e.statusCode !== 404) throw e; }
     }
 
     let restoreErr: Error | null = null;
@@ -1832,10 +1813,12 @@ router.post('/instances/:id/backup/restore', async (req: Request, res: Response)
     }
 
     // Always attempt to start containers back up
-    const toStart = [instance.backend_container_id, instance.dashboard_container_id].filter(Boolean) as string[];
-    for (const cid of toStart) {
-      try { await docker.getContainer(cid).start(); }
-      catch (e: any) { if (!e.message?.includes('already started') && e.statusCode !== 304 && e.statusCode !== 404) console.error('restart failed:', e.message); }
+    const toStart = ['backend', 'dashboard'] as const;
+    for (const role of toStart) {
+      try {
+        const container = await getContainerByRole(instance, role);
+        if (container) await container.start();
+      } catch (e: any) { if (!e.message?.includes('already started') && e.statusCode !== 304 && e.statusCode !== 404) console.error('restart failed:', e.message); }
     }
 
     if (restoreErr) {
