@@ -65,6 +65,26 @@ try {
   process.exit(1);
 }
 
+// Build social providers config dynamically based on env vars
+const socialProviders: Record<string, any> = {};
+
+if (process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET) {
+  socialProviders.apple = {
+    clientId: process.env.APPLE_CLIENT_ID,
+    clientSecret: process.env.APPLE_CLIENT_SECRET,
+    appBundleIdentifier: process.env.APPLE_APP_BUNDLE_IDENTIFIER,
+  };
+  console.log('Apple social provider enabled');
+}
+
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  socialProviders.google = {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  };
+  console.log('Google social provider enabled');
+}
+
 let auth;
 try {
   auth = betterAuth({
@@ -75,6 +95,7 @@ try {
     emailAndPassword: {
       enabled: true,
     },
+    socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
     plugins,
     trustedOrigins: ['*'],
   });
