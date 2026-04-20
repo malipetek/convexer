@@ -35,6 +35,12 @@ const plugins: any[] = [];
 try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const infraModule = await import('@better-auth/infra') as any;
+  console.log('[@better-auth/infra] Module keys:', Object.keys(infraModule));
+  console.log('[@better-auth/infra] Default:', typeof infraModule.default);
+  if (infraModule.default) {
+    console.log('[@better-auth/infra] Default keys:', Object.keys(infraModule.default));
+  }
+
   const infraFn = infraModule.infra ?? infraModule.default?.infra ?? infraModule.default;
   if (typeof infraFn === 'function') {
     plugins.push(infraFn());
@@ -42,8 +48,8 @@ try {
   } else {
     console.warn('@better-auth/infra loaded but no callable export found');
   }
-} catch (err) {
-  console.warn('@better-auth/infra not available, running without infra plugin');
+} catch (err: any) {
+  console.warn('@better-auth/infra not available, running without infra plugin:', err.message);
 }
 
 // Test database connection before initializing Better Auth
