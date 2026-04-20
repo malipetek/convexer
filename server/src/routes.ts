@@ -44,7 +44,9 @@ import
   getContainerLogs,
   ensureImages,
   pullImage,
-  getContainerByRole
+  getContainerByRole,
+  removeBetterAuthSidecar,
+  createBetterAuthSidecar
 } from './docker.js';
 import
 {
@@ -520,7 +522,14 @@ router.put('/instances/:id/settings', async (req: Request, res: Response) =>
     console.warn('Failed to stop/remove backend:', err.message);
   }
 
-  // Recreate backend with new env
+  // Stop and remove betterauth container so it gets recreated with new env
+  try {
+    await removeBetterAuthSidecar(instance);
+  } catch (err: any) {
+    console.warn('Failed to remove betterauth sidecar:', err.message);
+  }
+
+  // Recreate backend with new env (this also recreates betterauth)
   try {
     await createAndStartInstance(updated);
   } catch (err: any) {
