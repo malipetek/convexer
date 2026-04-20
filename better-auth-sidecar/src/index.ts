@@ -52,11 +52,10 @@ try {
 let auth;
 try {
   auth = betterAuth({
-    // Database adapter disabled pending investigation of async initialization error
-    // database: {
-    //   type: 'pg',
-    //   pool,
-    // },
+    database: {
+      type: 'pg',
+      pool,
+    },
     secret: BETTER_AUTH_SECRET,
     baseURL: BASE_URL,
     emailAndPassword: {
@@ -65,7 +64,7 @@ try {
     plugins,
     trustedOrigins: ['*'],
   });
-  console.log('Better Auth initialized successfully (without database)');
+  console.log('Better Auth initialized successfully');
 } catch (err: any) {
   console.error('Failed to initialize Better Auth:', err.message, err.stack);
   process.exit(1);
