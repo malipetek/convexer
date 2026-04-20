@@ -41,11 +41,11 @@ services:
       - ${HOST_PROJECT_PATH:-/home/convexer}/server/data:/app/host-data:ro
     environment:
       - DATA_DIR=/app/server/data
-      - DOMAIN=${DOMAIN:-malipetek.online}
+      - DOMAIN=${DOMAIN}
       - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-}
       - TUNNEL_CONFIG_PATH=${TUNNEL_CONFIG_PATH:-}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
-      - GITHUB_REPO=${GITHUB_REPO:-malipetek/convexer}
+      - GITHUB_REPO=${GITHUB_REPO}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # Absolute path of the repo on the HOST machine. The in-app updater
       # bind-mounts this into an ephemeral container to run git pull +
@@ -54,7 +54,7 @@ services:
       - UPDATE_BRANCH=${UPDATE_BRANCH:-main}
     labels:
       - traefik.enable=true
-      - traefik.http.routers.convexer.rule=Host(`malipetek.online`)
+      - traefik.http.routers.convexer.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.convexer.entrypoints=web
       - traefik.http.services.convexer.loadbalancer.server.port=4000
     networks:
@@ -85,7 +85,7 @@ services:
       APP_SECRET: ${UMAMI_APP_SECRET:-change_me_umami_secret_32chars_min}
     labels:
       - traefik.enable=true
-      - traefik.http.routers.umami.rule=Host(`umami.${DOMAIN:-malipetek.online}`)
+      - traefik.http.routers.umami.rule=Host(`umami.${DOMAIN}`)
       - traefik.http.routers.umami.entrypoints=web
       - traefik.http.services.umami.loadbalancer.server.port=3000
     networks:
@@ -123,12 +123,12 @@ services:
       DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
       REDIS_URL: redis://glitchtip-redis:6379/0
-      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
+      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN}
       DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-errors@example.com}
       EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
     labels:
       - traefik.enable=true
-      - traefik.http.routers.glitchtip.rule=Host(`glitchtip.${DOMAIN:-malipetek.online}`)
+      - traefik.http.routers.glitchtip.rule=Host(`glitchtip.${DOMAIN}`)
       - traefik.http.routers.glitchtip.entrypoints=web
       - traefik.http.services.glitchtip.loadbalancer.server.port=8000
     networks:
@@ -146,7 +146,7 @@ services:
       DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD:-change_me_glitchtip_db}@glitchtip-db:5432/glitchtip
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me_glitchtip_secret_key}
       REDIS_URL: redis://glitchtip-redis:6379/0
-      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN:-malipetek.online}
+      GLITCHTIP_DOMAIN: http://glitchtip.${DOMAIN}
     networks:
       - convexer-net
 

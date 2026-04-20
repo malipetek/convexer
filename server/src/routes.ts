@@ -770,7 +770,11 @@ router.get('/version', (_req: Request, res: Response) =>
 router.get('/version/check', async (_req: Request, res: Response) =>
 {
   try {
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'malipetek/convexer';
+    const GITHUB_REPO = process.env.GITHUB_REPO;
+    if (!GITHUB_REPO) {
+      res.status(400).json({ error: 'GITHUB_REPO environment variable not set' });
+      return;
+    }
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Optional, for higher rate limits / private repos
 
     const baseHeaders: Record<string, string> = {
@@ -859,7 +863,7 @@ echo "[updater] saving current commit for rollback"
 git rev-parse HEAD > /repo/server/data/.rollback_commit || true
 
 echo "[updater] changing git remote to HTTPS"
-git remote set-url origin https://github.com/malipetek/convexer.git
+git remote set-url origin https://github.com/\${GITHUB_REPO}.git
 
 echo "[updater] git fetch and pull"
 git fetch origin
@@ -890,7 +894,7 @@ docker run -d --name convexer-pending \\
   -v convexer-ssh:/root/.ssh \\
   -v convexer-backups:/app/server/data/backups \\
   -e DATA_DIR=/app/server/data \\
-  -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+  -e DOMAIN=\${DOMAIN} \\
   -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
   -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
   convexer-convexer:pending
@@ -944,12 +948,12 @@ docker run -d --name convexer \\
   -v convexer-ssh:/root/.ssh \\
   -v convexer-backups:/app/server/data/backups \\
   -e DATA_DIR=/app/server/data \\
-  -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+  -e DOMAIN=\${DOMAIN} \\
   -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
   -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
   --restart unless-stopped \\
   --label "traefik.enable=true" \\
-  --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+  --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
   --label "traefik.http.routers.convexer.entrypoints=web" \\
   --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
   convexer-convexer:latest || {
@@ -964,12 +968,12 @@ docker run -d --name convexer \\
     -v convexer-ssh:/root/.ssh \\
     -v convexer-backups:/app/server/data/backups \\
     -e DATA_DIR=/app/server/data \\
-    -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+    -e DOMAIN=\${DOMAIN} \\
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
-    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
     --label "traefik.http.routers.convexer.entrypoints=web" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
@@ -1006,12 +1010,12 @@ if [ "$HEALTH_OK" = "0" ]; then
     -v convexer-ssh:/root/.ssh \\
     -v convexer-backups:/app/server/data/backups \\
     -e DATA_DIR=/app/server/data \\
-    -e DOMAIN=\${DOMAIN:-malipetek.online} \\
+    -e DOMAIN=\${DOMAIN} \\
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
-    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
     --label "traefik.http.routers.convexer.entrypoints=web" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
