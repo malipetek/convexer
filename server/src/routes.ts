@@ -947,6 +947,10 @@ docker run -d --name convexer \\
   -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
   -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
   --restart unless-stopped \\
+  --label "traefik.enable=true" \\
+  --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+  --label "traefik.http.routers.convexer.entrypoints=web" \\
+  --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
   convexer-convexer:latest || {
   echo "[updater] FAILED TO START FINAL CONTAINER - rolling back"
   echo "[updater] restarting pending container on port 4000 as fallback"
@@ -963,6 +967,10 @@ docker run -d --name convexer \\
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
     --restart unless-stopped \\
+    --label "traefik.enable=true" \\
+    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"
   git checkout $(cat /repo/server/data/.rollback_commit) || true
@@ -1001,6 +1009,10 @@ if [ "$HEALTH_OK" = "0" ]; then
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
     --restart unless-stopped \\
+    --label "traefik.enable=true" \\
+    --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN:-malipetek.online}\\\`)" \\
+    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"
   git checkout $(cat /repo/server/data/.rollback_commit) || true
