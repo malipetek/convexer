@@ -806,13 +806,42 @@ function InstanceSettings ({ instance }: { instance: any })
       return {};
     }
   });
+  const [customEnvText, setCustomEnvText] = useState(() =>
+  {
+    try {
+      const env = instance.extra_env ? JSON.parse(instance.extra_env) : {};
+      return Object.entries(env)
+        .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n');
+    } catch {
+      return '';
+    }
+  });
   const [healthCheckTimeout, setHealthCheckTimeout] = useState(instance.health_check_timeout || 300000);
   const [postgresHealthCheckTimeout, setPostgresHealthCheckTimeout] = useState(instance.postgres_health_check_timeout || 60000);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateSettings(instance.id, extraEnv);
+      // Parse customEnvText into extraEnv before saving
+      const lines = customEnvText.split('\n');
+      const parsed: Record<string, string> = {};
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const eqIndex = line.indexOf('=');
+        if (eqIndex === -1) continue;
+        const key = line.slice(0, eqIndex).trim();
+        const value = line.slice(eqIndex + 1).trim();
+        parsed[key] = value;
+      }
+      const finalExtraEnv = {
+        ...Object.fromEntries(
+          Object.entries(extraEnv).filter(([k]) => ['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
+        ),
+        ...parsed,
+      };
+      await api.updateSettings(instance.id, finalExtraEnv);
       await api.updateHealthCheckSettings(instance.id, healthCheckTimeout, postgresHealthCheckTimeout);
       alert('Settings saved');
     } catch (err: any) {
@@ -948,30 +977,8 @@ function InstanceSettings ({ instance }: { instance: any })
               id="custom-env"
               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="KEY=value"
-              value={Object.entries(extraEnv)
-                .filter(([k]) => !['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
-                .map(([k, v]) => `${k}=${v}`)
-                .join('\n')}
-              onChange={(e) =>
-              {
-                const lines = e.target.value.split('\n');
-                const parsed: Record<string, string> = {};
-                for (const line of lines) {
-                  if (!line.trim()) continue;
-                  const eqIndex = line.indexOf('=');
-                  if (eqIndex === -1) continue;
-                  const key = line.slice(0, eqIndex).trim();
-                  const value = line.slice(eqIndex + 1).trim();
-                  parsed[key] = value;
-                }
-                setExtraEnv(prev =>
-                {
-                  const withoutCustom = Object.fromEntries(
-                    Object.entries(prev).filter(([k]) => ['DOCUMENT_RETENTION_DELAY', 'APPLICATION_MAX_CONCURRENT_MUTATIONS', 'RUST_LOG', 'DISABLE_METRICS_ENDPOINT', 'BACKEND_DOMAIN', 'SITE_DOMAIN', 'DASHBOARD_DOMAIN', 'BETTERAUTH_DOMAIN'].includes(k))
-                  );
-                  return { ...withoutCustom, ...parsed };
-                });
-              }}
+              value={customEnvText}
+              onChange={(e) => setCustomEnvText(e.target.value)}
             />
             <p className="text-sm text-muted-foreground">
               Add custom environment variables (one per line, format: KEY=value)
