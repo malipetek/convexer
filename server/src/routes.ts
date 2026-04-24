@@ -2460,7 +2460,9 @@ router.get('/ops/docker', async (_req: Request, res: Response) =>
       }));
 
     const danglingVolumes = convexerVolumes.filter(volume => !volume.referenced);
-    const { stdout: diskUsage } = await execAsync('docker system df');
+    const diskUsage = await execAsync('docker system df')
+      .then(result => result.stdout)
+      .catch((err: any) => `Docker disk usage unavailable: ${err.message}`);
 
     res.json({
       docker_disk_usage: diskUsage,
