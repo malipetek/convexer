@@ -28,17 +28,18 @@ export default function LoginPage({ onSuccess }: Props) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex items-center justify-center bg-background" data-testid="login-page">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl text-center">Convexer</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" data-testid="login-form">
             <p className="text-sm text-muted-foreground text-center">
               Enter password to continue
             </p>
             <Input
+              data-testid="login-password-input"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -49,7 +50,7 @@ export default function LoginPage({ onSuccess }: Props) {
             {error && (
               <div className="text-sm text-destructive">{error}</div>
             )}
-            <Button type="submit" className="w-full" disabled={loading || !password}>
+            <Button type="submit" className="w-full" disabled={loading || !password} data-testid="login-submit-button">
               {loading ? 'Logging in...' : 'Login'}
             </Button>
           </form>

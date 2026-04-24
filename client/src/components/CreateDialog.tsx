@@ -38,7 +38,7 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="create-instance-dialog">
         <DialogHeader>
           <DialogTitle>Create Instance</DialogTitle>
         </DialogHeader>
@@ -46,6 +46,7 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
           <div className="space-y-2">
             <Label htmlFor="name">Instance Name (optional)</Label>
             <Input
+              data-testid="create-instance-name-input"
               id="name"
               type="text"
               value={name}
@@ -155,10 +156,10 @@ export default function CreateDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending} data-testid="create-instance-cancel-button">
             Cancel
           </Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending} data-testid="create-instance-submit-button">
             {mutation.isPending ? 'Creating...' : 'Create'}
           </Button>
         </DialogFooter>

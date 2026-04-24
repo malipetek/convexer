@@ -69,7 +69,7 @@ export default function Home() {
       <Card className="max-w-md mx-auto mt-20">
         <CardContent className="py-24 text-center">
           <Database className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-xl font-semibold mb-2">No instances yet</h3>
+          <h3 className="text-xl font-semibold mb-2" data-testid="home-no-instances-title">No instances yet</h3>
           <p className="text-muted-foreground mb-6">Select "New Instance" from the sidebar to create your first Convex instance</p>
         </CardContent>
       </Card>

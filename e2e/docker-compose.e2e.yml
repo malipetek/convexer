@@ -1,0 +1,33 @@
+services:
+  convexer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: convexer
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - convexer-data:/app/server/data
+      - convexer-backups:/app/server/data/backups
+    environment:
+      - DATA_DIR=/app/server/data
+      - DOMAIN=
+      - TUNNEL_DOMAIN=
+      - TUNNEL_CONFIG_PATH=
+      - AUTH_PASSWORD=${AUTH_PASSWORD}
+      - GITHUB_REPO=malipetek/convexer
+      - GITHUB_TOKEN=
+      - HOST_PROJECT_PATH=
+      - UPDATE_BRANCH=main
+    networks:
+      - convexer-net
+
+volumes:
+  convexer-data:
+  convexer-backups:
+
+networks:
+  convexer-net:
+    external: true

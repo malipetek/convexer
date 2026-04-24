@@ -28,7 +28,7 @@ export default function Sidebar({ onCreate }: SidebarProps) {
           </div>
           <h1 className="text-xl font-bold">Convexer</h1>
         </Link>
-        <Button className="w-full" size="sm" onClick={onCreate}>
+        <Button className="w-full" size="sm" onClick={onCreate} data-testid="new-instance-button">
           <Plus className="h-4 w-4 mr-2" />
           New Instance
         </Button>
@@ -44,6 +44,7 @@ export default function Sidebar({ onCreate }: SidebarProps) {
               <Link
                 key={instance.id}
                 to={`/instances/${instance.id}`}
+                data-testid={`sidebar-instance-link-${instance.id}`}
                 className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
                   isActive(`/instances/${instance.id}`)
                     ? 'bg-primary text-primary-foreground'
@@ -63,7 +64,7 @@ export default function Sidebar({ onCreate }: SidebarProps) {
               </Link>
             ))}
             {instances?.length === 0 && (
-              <div className="text-sm text-muted-foreground text-center py-4">
+              <div className="text-sm text-muted-foreground text-center py-4" data-testid="sidebar-no-instances">
                 No instances
               </div>
             )}
