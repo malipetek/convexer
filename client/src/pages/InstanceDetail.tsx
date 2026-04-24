@@ -11,10 +11,11 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
-import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive, Box, CircleDot, AlertCircle, CheckCircle2, ArrowUpCircle, PackageOpen } from 'lucide-react';
+import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, Download, Upload, Database, FileDown, FileUp, Archive, Box, CircleDot, AlertCircle, CheckCircle2, ArrowUpCircle, PackageOpen, Bell, SendHorizontal } from 'lucide-react';
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import InstanceMetrics, { type MetricSample } from '../components/InstanceMetrics';
+import type { PushProvider } from '../types';
 
 const SCHEDULE_PRESETS = [
   { label: 'Daily at 2 AM', cron: '0 2 * * *' },
@@ -251,7 +252,8 @@ export default function InstanceDetail() {
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="database">Database</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="backups">Backups</TabsTrigger>
+            <TabsTrigger value="push">Push</TabsTrigger>
+            <TabsTrigger value="backups" data-testid="tab-backups">Backups</TabsTrigger>
             <TabsTrigger value="containers">Containers</TabsTrigger>
           </TabsList>
 
@@ -685,6 +687,10 @@ export default function InstanceDetail() {
             <InstanceSettings instance={instance} />
           </TabsContent>
 
+          <TabsContent value="push">
+            <PushSettingsTab instanceId={instance.id} />
+          </TabsContent>
+
           <TabsContent value="backups">
             <BackupsTab
               instanceId={id!}
@@ -1059,6 +1065,258 @@ function InstanceSettings ({ instance }: { instance: any })
   );
 }
 
+function defaultPushConfigForProvider (provider: PushProvider): Record<string, unknown>
+{
+  switch (provider) {
+    case 'unifiedpush':
+      return {
+        base_url: '',
+        topic: '',
+        auth_token: '',
+        endpoints: [],
+      };
+    case 'webhook':
+      return {
+        url: '',
+        method: 'POST',
+        auth_token: '',
+        headers: {},
+      };
+    case 'fcm':
+      return {
+        project_id: '',
+        service_account_json: '',
+      };
+    case 'apns':
+      return {
+        team_id: '',
+        key_id: '',
+        bundle_id: '',
+        private_key_p8: '',
+      };
+    case 'webpush':
+      return {
+        subject: '',
+        public_key: '',
+        private_key: '',
+      };
+    default:
+      return {};
+  }
+}
+
+function PushSettingsTab ({ instanceId }: { instanceId: string })
+{
+  const queryClient = useQueryClient();
+  const [provider, setProvider] = useState<PushProvider>('unifiedpush');
+  const [enabled, setEnabled] = useState(false);
+  const [configText, setConfigText] = useState('{}');
+  const [testTitle, setTestTitle] = useState('Test notification');
+  const [testBody, setTestBody] = useState('Convexer push gateway test.');
+
+  const pushConfigQuery = useQuery({
+    queryKey: ['pushConfig', instanceId],
+    queryFn: () => api.push.getConfig(instanceId),
+    enabled: !!instanceId,
+  });
+
+  const logsQuery = useQuery({
+    queryKey: ['pushLogs', instanceId],
+    queryFn: () => api.push.getLogs(instanceId, 20),
+    enabled: !!instanceId,
+    refetchInterval: 10000,
+  });
+
+  useEffect(() => {
+    if (!pushConfigQuery.data?.config) return;
+    const cfg = pushConfigQuery.data.config;
+    setProvider(cfg.provider);
+    setEnabled(cfg.enabled === 1);
+    setConfigText(JSON.stringify(cfg.config ?? {}, null, 2));
+  }, [pushConfigQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      let parsedConfig: Record<string, unknown>;
+      try {
+        parsedConfig = JSON.parse(configText);
+      } catch {
+        throw new Error('Config JSON is invalid');
+      }
+      if (!parsedConfig || typeof parsedConfig !== 'object' || Array.isArray(parsedConfig)) {
+        throw new Error('Config JSON must be an object');
+      }
+      return api.push.saveConfig(instanceId, {
+        provider,
+        enabled,
+        config: parsedConfig,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pushConfig', instanceId] });
+      alert('Push settings saved');
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Failed to save push settings');
+    },
+  });
+
+  const testMutation = useMutation({
+    mutationFn: () => api.push.sendTest(instanceId, {
+      title: testTitle,
+      body: testBody,
+      data: {
+        source: 'convexer',
+        type: 'test',
+      },
+    }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['pushLogs', instanceId] });
+      if (data.success) {
+        alert('Test notification sent');
+      } else {
+        alert('Test request completed but at least one delivery failed');
+      }
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Failed to send test notification');
+    },
+  });
+
+  const providers = pushConfigQuery.data?.providers ?? ['unifiedpush', 'webhook', 'fcm', 'apns', 'webpush'] as PushProvider[];
+  const logs = logsQuery.data?.logs ?? [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Push Gateway
+          </CardTitle>
+          <CardDescription>
+            Configure per-instance mobile push delivery provider and credentials.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="push-provider">Provider</Label>
+              <Select
+                value={provider}
+                onValueChange={(value: PushProvider) =>
+                {
+                  setProvider(value);
+                  setConfigText(JSON.stringify(defaultPushConfigForProvider(value), null, 2));
+                }}
+              >
+                <SelectTrigger id="push-provider">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((p) => (
+                    <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between border rounded-md px-3 py-2 mt-7">
+              <Label htmlFor="push-enabled">Enable Push For This Instance</Label>
+              <Switch
+                id="push-enabled"
+                checked={enabled}
+                onCheckedChange={setEnabled}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="push-config-json">Provider Config (JSON)</Label>
+            <textarea
+              id="push-config-json"
+              className="w-full min-h-[220px] rounded-md border bg-background p-3 text-sm font-mono"
+              value={configText}
+              onChange={(e) => setConfigText(e.target.value)}
+              spellCheck={false}
+            />
+            <p className="text-xs text-muted-foreground">
+              UnifiedPush supports either `endpoints[]` or `base_url + topic`. APNS/FCM/WebPush adapters are scaffolded and will be wired next.
+            </p>
+          </div>
+
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? 'Saving...' : 'Save Push Settings'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SendHorizontal className="h-4 w-4" />
+            Send Test Notification
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="push-test-title">Title</Label>
+            <Input
+              id="push-test-title"
+              value={testTitle}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTestTitle(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="push-test-body">Body</Label>
+            <Input
+              id="push-test-body"
+              value={testBody}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTestBody(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+            {testMutation.isPending ? 'Sending...' : 'Send Test'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Delivery Logs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No push delivery logs yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <div key={log.id} className="rounded-md border p-3 text-sm space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">
+                      {log.provider.toUpperCase()} · {log.status}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(log.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  {log.target && <div className="text-xs font-mono break-all">{log.target}</div>}
+                  {log.error_message && <div className="text-xs text-destructive">{log.error_message}</div>}
+                  {log.response_code ? (
+                    <div className="text-xs text-muted-foreground">
+                      HTTP {log.response_code}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function BackupsTab ({ instanceId, backupConfig, setBackupConfig, savingBackup, setSavingBackup, saveBackupConfigMutation }: { instanceId: string; backupConfig: any; setBackupConfig: any; savingBackup: boolean; setSavingBackup: any; saveBackupConfigMutation: any })
 {
   return (
@@ -1259,7 +1517,7 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={() => triggerMutation.mutate()} disabled={triggerMutation.isPending}>
+            <Button onClick={() => triggerMutation.mutate()} disabled={triggerMutation.isPending} data-testid="backup-now-button">
               {triggerMutation.isPending
                 ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Running...</>
                 : <><FileDown className="h-4 w-4 mr-2" />Back Up Now</>}
@@ -1301,7 +1559,11 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                                   ls.dot
                               } z-10`} />
 
-                            <div className={`flex-1 rounded-lg border p-3 transition-colors cursor-pointer hover:border-primary/50 ${isFirst && h.status === 'completed' ? 'border-primary/40 bg-primary/5' : 'bg-card'}`} onClick={() => setDetailBackupId(h.id)}>
+                            <div
+                              className={`flex-1 rounded-lg border p-3 transition-colors cursor-pointer hover:border-primary/50 ${isFirst && h.status === 'completed' ? 'border-primary/40 bg-primary/5' : 'bg-card'}`}
+                              onClick={() => setDetailBackupId(h.id)}
+                              data-testid={`backup-history-item-${h.id}`}
+                            >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -1339,6 +1601,7 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
                                     variant={isFirst ? 'outline' : 'ghost'}
                                     className="h-7 px-2 text-xs shrink-0"
                                     disabled={!!restoringId}
+                                    data-testid={`backup-rollback-${h.id}`}
                                     onClick={() =>
                                     {
                                       if (window.confirm(`Roll back to this ${h.backup_type} snapshot?\n\nTaken: ${new Date(h.started_at).toLocaleString()}\n\nThe current state will be saved as a "Pre-restore snapshot" before rolling back.`)) {

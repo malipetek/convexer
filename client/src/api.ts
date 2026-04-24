@@ -1,4 +1,4 @@
-import { Instance, ArchivedInstance, InstanceStats } from './types';
+import { Instance, ArchivedInstance, InstanceStats, PushConfig, PushDeliveryLog, PushProvider } from './types';
 
 const BASE = '/api';
 
@@ -261,4 +261,18 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ newName }),
   }),
+  push: {
+    getConfig: (id: string) => request<{ config: PushConfig; providers: PushProvider[] }>(`/instances/${id}/push/config`),
+    saveConfig: (id: string, payload: { provider: PushProvider; enabled: boolean; config: Record<string, unknown> }) =>
+      request<{ config: PushConfig }>(`/instances/${id}/push/config`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    sendTest: (id: string, payload: { title?: string; body?: string; data?: Record<string, unknown> }) =>
+      request<{ success: boolean; results: Array<{ ok: boolean; target: string; statusCode?: number; responseBody?: string; error?: string }> }>(`/instances/${id}/push/test`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getLogs: (id: string, limit = 50) => request<{ logs: PushDeliveryLog[] }>(`/instances/${id}/push/logs?limit=${limit}`),
+  },
 };

@@ -1,6 +1,6 @@
 {
   "name": "convexer",
-  "version": "1.7.16",
+  "version": "1.7.17",
   "private": true,
   "workspaces": [
     "server",
@@ -11,9 +11,13 @@
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "build": "npm run build -w client",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "test:e2e": "playwright test",
+    "test:e2e:remote": "REMOTE_BASE_URL=${REMOTE_BASE_URL:-http://localhost:4000} playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "concurrently": "^9.1.0"
   },
   "dependencies": {

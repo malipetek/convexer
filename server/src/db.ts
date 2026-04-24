@@ -334,6 +334,38 @@ db.exec(`
   )
 `);
 
+// Push notification configuration per instance
+db.exec(`
+  CREATE TABLE IF NOT EXISTS push_configs (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL UNIQUE,
+    provider TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+  )
+`);
+
+// Push notification delivery attempts for observability/debugging
+db.exec(`
+  CREATE TABLE IF NOT EXISTS push_delivery_logs (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL,
+    target TEXT,
+    title TEXT,
+    body TEXT,
+    response_code INTEGER,
+    response_body TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+  )
+`);
+
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances WHERE archived_at IS NULL ORDER BY created_at DESC').all() as Instance[];
 }
@@ -535,6 +567,32 @@ export interface BackupSettings
   default_local_path?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface PushConfig
+{
+  id: string;
+  instance_id: string;
+  provider: string;
+  enabled: number;
+  config_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PushDeliveryLog
+{
+  id: string;
+  instance_id: string;
+  provider: string;
+  status: string;
+  target?: string | null;
+  title?: string | null;
+  body?: string | null;
+  response_code?: number | null;
+  response_body?: string | null;
+  error_message?: string | null;
+  created_at: string;
 }
 
 export function getBackupConfig (instanceId: string): BackupConfig | undefined
@@ -764,4 +822,68 @@ export function deleteBackupDestination (id: string): boolean
 {
   const result = db.prepare('DELETE FROM backup_destinations WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function getPushConfig (instanceId: string): PushConfig | undefined
+{
+  return db.prepare('SELECT * FROM push_configs WHERE instance_id = ?').get(instanceId) as PushConfig | undefined;
+}
+
+export function upsertPushConfig (
+  config: { id: string; instance_id: string; provider: string; enabled: number; config_json: string }
+): PushConfig
+{
+  const stmt = db.prepare(`
+    INSERT INTO push_configs (id, instance_id, provider, enabled, config_json)
+    VALUES (@id, @instance_id, @provider, @enabled, @config_json)
+    ON CONFLICT(instance_id) DO UPDATE SET
+      provider = excluded.provider,
+      enabled = excluded.enabled,
+      config_json = excluded.config_json,
+      updated_at = datetime('now')
+  `);
+  stmt.run(config);
+  return getPushConfig(config.instance_id)!;
+}
+
+export function getPushDeliveryLogs (instanceId: string, limit = 50): PushDeliveryLog[]
+{
+  return db.prepare('SELECT * FROM push_delivery_logs WHERE instance_id = ? ORDER BY created_at DESC LIMIT ?').all(instanceId, limit) as PushDeliveryLog[];
+}
+
+export function createPushDeliveryLog (
+  log: {
+    id: string;
+    instance_id: string;
+    provider: string;
+    status: string;
+    target?: string | null;
+    title?: string | null;
+    body?: string | null;
+    response_code?: number | null;
+    response_body?: string | null;
+    error_message?: string | null;
+  }
+): PushDeliveryLog
+{
+  const stmt = db.prepare(`
+    INSERT INTO push_delivery_logs (
+      id, instance_id, provider, status, target, title, body, response_code, response_body, error_message
+    ) VALUES (
+      @id, @instance_id, @provider, @status, @target, @title, @body, @response_code, @response_body, @error_message
+    )
+  `);
+  stmt.run({
+    id: log.id,
+    instance_id: log.instance_id,
+    provider: log.provider,
+    status: log.status,
+    target: log.target ?? null,
+    title: log.title ?? null,
+    body: log.body ?? null,
+    response_code: log.response_code ?? null,
+    response_body: log.response_body ?? null,
+    error_message: log.error_message ?? null,
+  });
+  return db.prepare('SELECT * FROM push_delivery_logs WHERE id = ?').get(log.id) as PushDeliveryLog;
 }

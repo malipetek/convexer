@@ -32,7 +32,11 @@ import
   getBackupDestination,
   createBackupDestination,
   updateBackupDestination,
-  deleteBackupDestination
+  deleteBackupDestination,
+  getPushConfig,
+  upsertPushConfig,
+  getPushDeliveryLogs,
+  createPushDeliveryLog
 } from './db.js';
 import
 {
@@ -83,6 +87,7 @@ import { readFileSync, promises as fsPromises } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import path from 'path';
+import { sendPush, supportedPushProviders, PushProvider } from './push.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -539,6 +544,150 @@ router.put('/instances/:id/settings', async (req: Request, res: Response) =>
   }
 
   res.json(getInstance(instance.id));
+});
+
+router.get('/instances/:id/push/config', (req: Request, res: Response) => {
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const config = getPushConfig(instance.id);
+  if (!config) {
+    res.json({
+      config: {
+        provider: 'unifiedpush',
+        enabled: 0,
+        config: {},
+      },
+      providers: supportedPushProviders(),
+    });
+    return;
+  }
+
+  let parsedConfig: Record<string, unknown> = {};
+  try {
+    parsedConfig = JSON.parse(config.config_json);
+  } catch {
+    parsedConfig = {};
+  }
+
+  res.json({
+    config: {
+      provider: config.provider,
+      enabled: config.enabled,
+      config: parsedConfig,
+      updated_at: config.updated_at,
+    },
+    providers: supportedPushProviders(),
+  });
+});
+
+router.put('/instances/:id/push/config', (req: Request, res: Response) => {
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const provider = req.body.provider as PushProvider;
+  const enabled = req.body.enabled ? 1 : 0;
+  const config = req.body.config;
+
+  if (!supportedPushProviders().includes(provider)) {
+    res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    return;
+  }
+
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    res.status(400).json({ error: 'config must be an object' });
+    return;
+  }
+
+  const existing = getPushConfig(instance.id);
+  const saved = upsertPushConfig({
+    id: existing?.id ?? uuidv4(),
+    instance_id: instance.id,
+    provider,
+    enabled,
+    config_json: JSON.stringify(config),
+  });
+
+  res.json({
+    config: {
+      provider: saved.provider,
+      enabled: saved.enabled,
+      config,
+      updated_at: saved.updated_at,
+    },
+  });
+});
+
+router.post('/instances/:id/push/test', async (req: Request, res: Response) => {
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const pushConfig = getPushConfig(instance.id);
+  if (!pushConfig) {
+    res.status(400).json({ error: 'Push config not found for this instance' });
+    return;
+  }
+
+  if (!pushConfig.enabled) {
+    res.status(400).json({ error: 'Push config is disabled for this instance' });
+    return;
+  }
+
+  const title = typeof req.body.title === 'string' && req.body.title.trim()
+    ? req.body.title.trim()
+    : `Test notification from ${instance.name}`;
+  const body = typeof req.body.body === 'string' && req.body.body.trim()
+    ? req.body.body.trim()
+    : 'Push gateway test successful.';
+  const data = req.body.data && typeof req.body.data === 'object' && !Array.isArray(req.body.data)
+    ? req.body.data as Record<string, unknown>
+    : {};
+
+  const results = await sendPush(pushConfig.provider as PushProvider, pushConfig.config_json, { title, body, data });
+
+  for (const attempt of results) {
+    createPushDeliveryLog({
+      id: uuidv4(),
+      instance_id: instance.id,
+      provider: pushConfig.provider,
+      status: attempt.ok ? 'success' : 'error',
+      target: attempt.target,
+      title,
+      body,
+      response_code: attempt.statusCode ?? null,
+      response_body: attempt.responseBody ?? null,
+      error_message: attempt.error ?? null,
+    });
+  }
+
+  res.json({
+    success: results.every(result => result.ok),
+    results,
+  });
+});
+
+router.get('/instances/:id/push/logs', (req: Request, res: Response) => {
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0
+    ? Math.min(200, Math.floor(limitRaw))
+    : 50;
+  const logs = getPushDeliveryLogs(instance.id, limit);
+  res.json({ logs });
 });
 
 // Upgrade instance to specific Convex version

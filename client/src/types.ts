@@ -60,3 +60,28 @@ export interface InstanceStats
   system_disk_used: number;
   system_disk_available: number;
 }
+
+export type PushProvider = 'unifiedpush' | 'webhook' | 'fcm' | 'apns' | 'webpush';
+
+export interface PushConfig
+{
+  provider: PushProvider;
+  enabled: number;
+  config: Record<string, any>;
+  updated_at?: string;
+}
+
+export interface PushDeliveryLog
+{
+  id: string;
+  instance_id: string;
+  provider: PushProvider;
+  status: 'success' | 'error';
+  target?: string | null;
+  title?: string | null;
+  body?: string | null;
+  response_code?: number | null;
+  response_body?: string | null;
+  error_message?: string | null;
+  created_at: string;
+}
