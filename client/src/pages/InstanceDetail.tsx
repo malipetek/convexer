@@ -1192,6 +1192,33 @@ function PushSettingsTab ({ instanceId }: { instanceId: string })
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
+            Setup Model
+          </CardTitle>
+          <CardDescription>
+            Push state belongs to this app instance; Convexer only stores provider configuration and sends test notifications.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Register device tokens or UnifiedPush endpoints in your own Convex app tables, then call a Convex HTTP action or backend function that forwards messages through this configured provider.
+          </p>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="p-3 rounded-md bg-muted">
+              <div className="font-medium text-foreground mb-1">Self-hosted Android/FOSS</div>
+              <div>Use UnifiedPush with a self-hosted distributor such as ntfy. Store each device endpoint and send directly to those endpoints.</div>
+            </div>
+            <div className="p-3 rounded-md bg-muted">
+              <div className="font-medium text-foreground mb-1">Mainstream native apps</div>
+              <div>iOS requires APNs. Google Play Android typically uses FCM. Those adapters are reserved in the provider list and will be wired next.</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-4 w-4" />
             Push Gateway
           </CardTitle>
           <CardDescription>

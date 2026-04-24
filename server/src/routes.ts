@@ -2395,6 +2395,101 @@ router.get('/monitoring/logs', async (req: Request, res: Response) =>
   }
 });
 
+router.get('/push/container-logs', async (req: Request, res: Response) =>
+{
+  const tail = parseInt(req.query.tail as string) || 300;
+  const candidates = ['convexer-push', 'convexer-ntfy', 'ntfy', 'gotify'];
+
+  for (const name of candidates) {
+    try {
+      const info = await docker.getContainer(name).inspect();
+      const logs = await getContainerLogs(name, tail);
+      res.json({
+        available: true,
+        container: name,
+        running: info.State.Running,
+        status: info.State.Status,
+        logs,
+      });
+      return;
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  res.json({
+    available: false,
+    container: null,
+    running: false,
+    status: 'not found',
+    logs: '',
+    message: 'No separate push notification container found. The current push gateway runs inside the Convexer server process and records per-instance delivery attempts in the Push tab.',
+  });
+});
+
+router.get('/ops/docker', async (_req: Request, res: Response) =>
+{
+  try {
+    const volumes = await docker.listVolumes();
+    const allInstances = [...getAllInstances(), ...getArchivedInstances()];
+    const referencedVolumes = new Set<string>();
+    for (const instance of allInstances) {
+      if (instance.volume_name) referencedVolumes.add(instance.volume_name);
+      if (instance.postgres_volume_name) referencedVolumes.add(instance.postgres_volume_name);
+    }
+
+    const protectedVolumes = new Set([
+      'convexer-data',
+      'convexer-ssh',
+      'convexer-backups',
+      'convexer_umami-db-data',
+      'convexer_glitchtip-db-data',
+      'umami-db-data',
+      'glitchtip-db-data',
+    ]);
+
+    const convexerVolumes = (volumes.Volumes || [])
+      .filter(volume => volume.Name.startsWith('convexer'))
+      .map(volume => ({
+        name: volume.Name,
+        driver: volume.Driver,
+        mountpoint: volume.Mountpoint,
+        created_at: (volume as any).CreatedAt,
+        labels: volume.Labels || {},
+        referenced: referencedVolumes.has(volume.Name) || protectedVolumes.has(volume.Name),
+      }));
+
+    const danglingVolumes = convexerVolumes.filter(volume => !volume.referenced);
+    const { stdout: diskUsage } = await execAsync('docker system df');
+
+    res.json({
+      docker_disk_usage: diskUsage,
+      volumes: convexerVolumes,
+      dangling_volumes: danglingVolumes,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/ops/docker/prune-build-cache', async (_req: Request, res: Response) =>
+{
+  try {
+    const before = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
+    const { stdout, stderr } = await execAsync('docker builder prune -f');
+    const after = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
+    res.json({
+      success: true,
+      output: stdout,
+      error_output: stderr,
+      before,
+      after,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Monitoring stack status
 router.get('/monitoring/status', async (_req: Request, res: Response) =>
 {

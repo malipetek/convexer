@@ -245,6 +245,16 @@ export const api = {
   },
   getMonitoringLogs: (container: string, tail = 300) =>
     request<{ logs: string }>(`/monitoring/logs?container=${container}&tail=${tail}`),
+  getPushContainerLogs: (tail = 300) =>
+    request<{ available: boolean; container: string | null; running: boolean; status: string; logs: string; message?: string }>(`/push/container-logs?tail=${tail}`),
+  getDockerOps: () => request<{
+    docker_disk_usage: string;
+    volumes: Array<{ name: string; driver: string; mountpoint: string; created_at?: string; labels: Record<string, string>; referenced: boolean }>;
+    dangling_volumes: Array<{ name: string; driver: string; mountpoint: string; created_at?: string; labels: Record<string, string>; referenced: boolean }>;
+  }>('/ops/docker'),
+  pruneDockerBuildCache: () => request<{ success: boolean; output: string; error_output: string; before: string; after: string }>('/ops/docker/prune-build-cache', {
+    method: 'POST',
+  }),
   getMonitoringStatus: () => request<{
     umami: { url: string; running: boolean; status: string; db_status: string; admin_exists: boolean };
     glitchtip: { url: string; running: boolean; status: string; worker_status: string; db_status: string; redis_status: string; admin_exists: boolean };

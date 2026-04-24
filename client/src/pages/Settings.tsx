@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink, Terminal, Key, Mail, CheckCircle } from 'lucide-react';
+import { Save, RefreshCw, Download, Cpu, HardDrive, Network, Container, Clock, Server, MemoryStick, Settings as SettingsIcon, Activity, PackageCheck, BarChart2, Bug, ExternalLink, Terminal, Key, Mail, CheckCircle, Wrench, Bell } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { api } from '../api';
 
@@ -523,6 +523,155 @@ function MonitoringLogs ({ containers }: { containers: { value: string; label: s
   );
 }
 
+function UtilitiesTab ()
+{
+  const queryClient = useQueryClient();
+  const [pruneResult, setPruneResult] = useState<string>('');
+  const logRef = useRef<HTMLPreElement>(null);
+
+  const dockerOpsQuery = useQuery({
+    queryKey: ['docker-ops'],
+    queryFn: () => api.getDockerOps(),
+    refetchOnWindowFocus: false,
+  });
+
+  const pushLogsQuery = useQuery({
+    queryKey: ['push-container-logs'],
+    queryFn: () => api.getPushContainerLogs(300),
+    refetchInterval: 5000,
+  });
+
+  useEffect(() =>
+  {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [pushLogsQuery.data]);
+
+  const pruneMutation = useMutation({
+    mutationFn: () => api.pruneDockerBuildCache(),
+    onSuccess: (result) =>
+    {
+      setPruneResult(result.output || result.error_output || 'Docker build cache pruned.');
+      queryClient.invalidateQueries({ queryKey: ['docker-ops'] });
+    },
+    onError: (err: any) =>
+    {
+      alert(err.message || 'Failed to prune Docker build cache');
+    },
+  });
+
+  const danglingVolumes = dockerOpsQuery.data?.dangling_volumes ?? [];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <HardDrive className="h-5 w-5" />
+              Docker Build Cache
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => dockerOpsQuery.refetch()}>
+              <RefreshCw className={`h-4 w-4 ${dockerOpsQuery.isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <pre className="text-xs bg-black text-green-400 font-mono p-3 rounded overflow-auto max-h-48 whitespace-pre-wrap">
+            {dockerOpsQuery.data?.docker_disk_usage || 'Loading Docker disk usage...'}
+          </pre>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+              {
+                if (confirm('Prune Docker build cache? This removes unused build cache only, not containers, images, or volumes.')) {
+                  pruneMutation.mutate();
+                }
+              }}
+              disabled={pruneMutation.isPending}
+            >
+              <HardDrive className="h-4 w-4 mr-2" />
+              {pruneMutation.isPending ? 'Pruning...' : 'Prune Build Cache'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Runs `docker builder prune -f`; persisted app and database volumes are not removed.
+            </p>
+          </div>
+          {pruneResult && (
+            <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+              {pruneResult}
+            </pre>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Container className="h-5 w-5" />
+            Dangling Convexer Volumes
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Volumes listed here are Convexer-named Docker volumes that are not referenced by active or archived instances and are not known core service volumes.
+          </p>
+          {danglingVolumes.length === 0 ? (
+            <div className="p-3 bg-muted rounded-md text-sm">No dangling Convexer volumes detected.</div>
+          ) : (
+            <div className="space-y-2">
+              {danglingVolumes.map(volume => (
+                <div key={volume.name} className="p-3 rounded-md border">
+                  <div className="font-mono text-sm break-all">{volume.name}</div>
+                  <div className="text-xs text-muted-foreground break-all mt-1">{volume.mountpoint}</div>
+                  {volume.created_at && (
+                    <div className="text-xs text-muted-foreground mt-1">Created: {volume.created_at}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            This checker is intentionally read-only. Review and back up suspicious volumes before removing anything manually.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5" />
+              Push Notification Container Logs
+            </CardTitle>
+            <RefreshCw className={`h-4 w-4 text-muted-foreground ${pushLogsQuery.isFetching ? 'animate-spin' : ''}`} />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {pushLogsQuery.data?.available ? (
+            <div className="flex items-center gap-2">
+              <Badge className={pushLogsQuery.data.running ? 'bg-green-600' : ''}>{pushLogsQuery.data.status}</Badge>
+              <span className="font-mono text-sm">{pushLogsQuery.data.container}</span>
+            </div>
+          ) : (
+            <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
+              {pushLogsQuery.data?.message || 'No separate push notification container found.'}
+            </div>
+          )}
+          <pre
+            ref={logRef}
+            className="text-xs bg-black text-green-400 font-mono p-3 rounded overflow-auto max-h-60 whitespace-pre-wrap"
+          >
+            {pushLogsQuery.data?.logs || 'No push container logs available.'}
+          </pre>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const [hostname, setHostname] = useState('');
@@ -752,6 +901,10 @@ export default function Settings() {
               <BarChart2 className="h-4 w-4 mr-2" />
               Monitoring
             </TabsTrigger>
+            <TabsTrigger value="utilities">
+              <Wrench className="h-4 w-4 mr-2" />
+              Utilities
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-0">
@@ -918,6 +1071,10 @@ export default function Settings() {
                 <ServerStats />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="utilities" className="mt-0">
+            <UtilitiesTab />
           </TabsContent>
 
           <TabsContent value="updates" className="mt-0">

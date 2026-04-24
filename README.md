@@ -178,6 +178,83 @@ Instance PostgreSQL data is stored in per-instance Docker volumes, for example:
 convexer-postgres-myapp
 ```
 
+## Push Notifications
+
+Convexer treats push notifications as per-app backend infrastructure, not as Convexer status alerts. Each instance should own its app users, devices, subscriptions, and notification preferences in its own Convex/PostgreSQL data model. Convexer stores the provider configuration and gives you a test sender plus delivery logs.
+
+Current shape:
+
+```text
+Mobile app
+  -> registers device token / UnifiedPush endpoint with its Convex instance
+
+Convex instance
+  -> stores device subscriptions
+  -> decides when to notify
+  -> calls provider using the configured push gateway settings
+
+Convexer
+  -> stores per-instance provider configuration
+  -> sends test notifications
+  -> records delivery attempts
+```
+
+What can be self-hosted:
+
+- UnifiedPush can be self-hosted for FOSS Android clients, commonly with ntfy as the distributor.
+- Webhook delivery can point at any self-hosted or external bridge.
+- iOS native push requires Apple APNs.
+- Mainstream Android through Google Play services normally uses FCM.
+- Web/PWA push uses browser push infrastructure even when you self-host your application.
+
+Recommended rollout:
+
+1. Use `unifiedpush` for self-hosted/FOSS Android experiments.
+2. Use `webhook` while developing bridges or testing a custom push service.
+3. Add APNs and FCM credentials per instance when targeting production iOS and mainstream Android apps.
+
+### UnifiedPush Config
+
+The current `unifiedpush` provider supports either direct endpoint delivery:
+
+```json
+{
+  "endpoints": [
+    "https://ntfy.example.com/up/DEVICE_ENDPOINT"
+  ],
+  "auth_token": ""
+}
+```
+
+Or topic-style delivery:
+
+```json
+{
+  "base_url": "https://ntfy.example.com",
+  "topic": "myapp-devices",
+  "auth_token": ""
+}
+```
+
+Direct endpoints are the better long-term model for real apps because each device subscription can have its own endpoint. Topic-style delivery is useful for smoke tests and early prototypes.
+
+### Webhook Config
+
+Use `webhook` when you have a custom bridge or want to forward notifications to another internal service:
+
+```json
+{
+  "url": "https://push-bridge.example.com/send",
+  "method": "POST",
+  "auth_token": "optional-bearer-token",
+  "headers": {}
+}
+```
+
+### Logs
+
+Push delivery attempts are shown in each instance's `Push` tab. If you later add a dedicated push service container such as `convexer-ntfy`, `ntfy`, or `gotify`, the global `Settings -> Utilities` tab can discover it and display container logs.
+
 ## Environment Variables
 
 - `DOMAIN`: public hostname for Convexer and generated instance subdomains
