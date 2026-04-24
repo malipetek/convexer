@@ -153,8 +153,11 @@ services:
 
 volumes:
   convexer-data:
+    name: convexer-data
   convexer-ssh:
+    name: convexer-ssh
   convexer-backups:
+    name: convexer-backups
   umami-db-data:
   glitchtip-db-data:
 
