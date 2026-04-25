@@ -478,6 +478,7 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
         `DATABASE_URL=${databaseUrl}`,
         `BETTER_AUTH_SECRET=${betterAuthSecret}`,
         `BASE_URL=${baseUrl}`,
+        `CONVEX_SITE_URL=${baseUrl}`,
         `PORT=4200`,
         'DO_NOT_REQUIRE_SSL=1',
         ...Object.entries(extraEnv).map(([key, value]) => `${key}=${value}`),

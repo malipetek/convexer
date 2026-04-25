@@ -1,5 +1,7 @@
 import express, { Request, Response } from 'express';
 import { betterAuth } from 'better-auth';
+import { convex } from '@convex-dev/better-auth/plugins';
+import type { AuthConfig } from 'convex/server';
 import { Pool } from 'pg';
 import { toNodeHandler } from 'better-auth/node';
 
@@ -14,6 +16,7 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4200;
 const DATABASE_URL = process.env.DATABASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BASE_URL = process.env.BASE_URL;
+const AUTH_BASE_PATH = '/api/auth';
 
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required');
@@ -42,6 +45,16 @@ async function ensureBetterAuthSchema ()
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS jwks (
+      id TEXT PRIMARY KEY,
+      public_key TEXT NOT NULL,
+      private_key TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      expires_at TIMESTAMP
+    )
+  `);
+
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS ip_address TEXT');
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS user_agent TEXT');
 
@@ -55,6 +68,30 @@ async function ensureBetterAuthSchema ()
 }
 
 const plugins: any[] = [];
+
+const convexJwtIssuer = (process.env.CONVEX_SITE_URL || BASE_URL || '').replace(/\/+$/, '');
+if (convexJwtIssuer) {
+  process.env.CONVEX_SITE_URL = convexJwtIssuer;
+  const authConfig = {
+    providers: [
+      {
+        type: 'customJwt',
+        issuer: convexJwtIssuer,
+        applicationID: 'convex',
+        algorithm: 'RS256',
+        jwks: `${convexJwtIssuer}${AUTH_BASE_PATH}/convex/jwks`,
+      },
+    ],
+  } satisfies AuthConfig;
+
+  plugins.push(convex({
+    authConfig,
+    options: { basePath: AUTH_BASE_PATH },
+  }));
+  console.log(`Loaded Convex JWT plugin with issuer ${convexJwtIssuer}`);
+} else {
+  console.warn('BASE_URL or CONVEX_SITE_URL is required to enable Convex JWT token endpoint');
+}
 
 // Dynamically load @better-auth/infra dash plugin if available
 try {
@@ -165,6 +202,14 @@ try {
         updatedAt: 'updated_at',
       },
     },
+    jwks: {
+      fields: {
+        publicKey: 'public_key',
+        privateKey: 'private_key',
+        createdAt: 'created_at',
+        expiresAt: 'expires_at',
+      },
+    },
   });
   console.log('Better Auth initialized successfully');
 } catch (err: any) {
@@ -174,7 +219,7 @@ try {
 
 const app = express();
 
-app.use('/api/auth', toNodeHandler(auth));
+app.use(AUTH_BASE_PATH, toNodeHandler(auth));
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
@@ -183,11 +228,11 @@ app.get('/health', (_req: Request, res: Response) => {
 app.get('/', (_req: Request, res: Response) => {
   res.json({
     service: 'better-auth-sidecar',
-    authUrl: `${BASE_URL || ''}/api/auth`,
+    authUrl: `${BASE_URL || ''}${AUTH_BASE_PATH}`,
   });
 });
 
 app.listen(PORT, () => {
   console.log(`Better Auth sidecar running on port ${PORT}`);
-  console.log(`Auth URL: ${BASE_URL || `http://localhost:${PORT}`}/api/auth`);
+  console.log(`Auth URL: ${BASE_URL || `http://localhost:${PORT}`}${AUTH_BASE_PATH}`);
 });
