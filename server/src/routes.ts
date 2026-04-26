@@ -1000,12 +1000,12 @@ router.post('/instances/:id/container-updates/apply', async (req: Request, res: 
   }
 
   try {
-    // Pull target images first
+    // Pull target images first (skip Better Auth sidecar - it's built locally)
     const tag = targetVersion === 'latest' ? 'latest' : targetVersion;
     const imagesToPull: string[] = [];
     if (roles.includes('backend')) imagesToPull.push(`${CONVEX_BACKEND_IMAGE}:${tag}`);
     if (roles.includes('dashboard')) imagesToPull.push(`${CONVEX_DASHBOARD_IMAGE}:${tag}`);
-    if (roles.includes('betterauth')) imagesToPull.push(BETTERAUTH_IMAGE);
+    // Note: Better Auth sidecar is built locally as part of Convexer Dockerfile, not pulled from registry
 
     for (const image of imagesToPull) {
       await pullImage(image);
