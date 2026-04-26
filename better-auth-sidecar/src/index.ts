@@ -1,7 +1,6 @@
 import express, { Request, Response } from 'express';
 import { betterAuth } from 'better-auth';
-import { convex } from '@convex-dev/better-auth/plugins';
-import type { AuthConfig } from 'convex/server';
+import { jwt } from 'better-auth/plugins/jwt';
 import { Pool } from 'pg';
 import { toNodeHandler } from 'better-auth/node';
 
@@ -48,12 +47,23 @@ async function ensureBetterAuthSchema ()
   await pool.query(`
     CREATE TABLE IF NOT EXISTS jwks (
       id TEXT PRIMARY KEY,
-      public_key TEXT NOT NULL,
-      private_key TEXT NOT NULL,
+      "publicKey" TEXT,
+      "privateKey" TEXT,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+      "expiresAt" TIMESTAMP,
+      public_key TEXT,
+      private_key TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       expires_at TIMESTAMP
     )
   `);
+
+  await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "publicKey" TEXT');
+  await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "privateKey" TEXT');
+  await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP NOT NULL DEFAULT now()');
+  await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP');
+  await pool.query("ALTER TABLE jwks ALTER COLUMN public_key DROP NOT NULL").catch(() => undefined);
+  await pool.query("ALTER TABLE jwks ALTER COLUMN private_key DROP NOT NULL").catch(() => undefined);
 
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS ip_address TEXT');
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS user_agent TEXT');
@@ -72,21 +82,23 @@ const plugins: any[] = [];
 const convexJwtIssuer = (process.env.CONVEX_SITE_URL || BASE_URL || '').replace(/\/+$/, '');
 if (convexJwtIssuer) {
   process.env.CONVEX_SITE_URL = convexJwtIssuer;
-  const authConfig = {
-    providers: [
-      {
-        type: 'customJwt',
-        issuer: convexJwtIssuer,
-        applicationID: 'convex',
-        algorithm: 'RS256',
-        jwks: `${convexJwtIssuer}${AUTH_BASE_PATH}/convex/jwks`,
-      },
-    ],
-  } satisfies AuthConfig;
-
-  plugins.push(convex({
-    authConfig,
-    options: { basePath: AUTH_BASE_PATH },
+  plugins.push(jwt({
+    jwt: {
+      issuer: convexJwtIssuer,
+      audience: 'convex',
+      expirationTime: '15m',
+      definePayload: ({ user, session }) => ({
+        email: user.email,
+        emailVerified: user.emailVerified,
+        name: user.name,
+        sessionId: session.id,
+        iat: Math.floor(Date.now() / 1000),
+      }),
+    },
+    jwks: {
+      jwksPath: '/convex/jwks',
+      keyPairConfig: { alg: 'RS256' },
+    },
   }));
   console.log(`Loaded Convex JWT plugin with issuer ${convexJwtIssuer}`);
 } else {
@@ -202,14 +214,6 @@ try {
         updatedAt: 'updated_at',
       },
     },
-    jwks: {
-      fields: {
-        publicKey: 'public_key',
-        privateKey: 'private_key',
-        createdAt: 'created_at',
-        expiresAt: 'expires_at',
-      },
-    },
   });
   console.log('Better Auth initialized successfully');
 } catch (err: any) {
@@ -219,7 +223,15 @@ try {
 
 const app = express();
 
-app.use(AUTH_BASE_PATH, toNodeHandler(auth));
+const authHandler = toNodeHandler(auth);
+
+app.use(AUTH_BASE_PATH, (req, res) => {
+  if (req.url.startsWith('/convex/token')) {
+    req.url = `/token${req.url.slice('/convex/token'.length)}`;
+    req.originalUrl = `${AUTH_BASE_PATH}${req.url}`;
+  }
+  return authHandler(req, res);
+});
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
