@@ -716,6 +716,15 @@ function VersionUpgradeCard ({ instance }: { instance: any })
   const queryClient = useQueryClient();
   const [targetVersion, setTargetVersion] = useState('');
   const [upgradeResult, setUpgradeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const checkVersion = targetVersion.trim() || 'latest';
+  const [checkedVersion, setCheckedVersion] = useState('latest');
+
+  const { data: versionStatus, isFetching: checkingVersion, refetch: refetchVersionStatus } = useQuery({
+    queryKey: ['instance-version-check', instance.id, checkedVersion],
+    queryFn: () => api.checkInstanceVersion(instance.id, checkedVersion),
+    enabled: true,
+    retry: false,
+  });
 
   const upgradeMutation = useMutation({
     mutationFn: (version: string) => api.upgradeInstance(instance.id, version),
@@ -724,6 +733,7 @@ function VersionUpgradeCard ({ instance }: { instance: any })
       setUpgradeResult({ success: true, message: data.message || 'Upgrade successful' });
       setTargetVersion('');
       queryClient.invalidateQueries({ queryKey: ['instance', instance.id] });
+      queryClient.invalidateQueries({ queryKey: ['instance-version-check', instance.id] });
     },
     onError: (err: any) =>
     {
@@ -740,6 +750,16 @@ function VersionUpgradeCard ({ instance }: { instance: any })
   };
 
   const currentVersion = instance.pinned_version || 'latest';
+  const statusMatchesInput = versionStatus?.target_version === checkVersion;
+  const hasUpdate = Boolean(statusMatchesInput && versionStatus?.has_update);
+  const handleCheckVersion = () =>
+  {
+    if (checkedVersion === checkVersion) {
+      refetchVersionStatus();
+    } else {
+      setCheckedVersion(checkVersion);
+    }
+  };
 
   return (
     <Card className="mt-6">
@@ -760,7 +780,36 @@ function VersionUpgradeCard ({ instance }: { instance: any })
           {instance.detected_version && instance.detected_version !== instance.pinned_version && (
             <Badge variant="outline" className="font-mono text-xs">detected: {instance.detected_version}</Badge>
           )}
+          {hasUpdate && (
+            <Badge className="font-mono text-xs">update available</Badge>
+          )}
         </div>
+
+        {versionStatus && (
+          <div className="rounded-md border p-3 space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Container image status vs {versionStatus.target_version}</span>
+              <Button size="sm" variant="outline" onClick={handleCheckVersion} disabled={checkingVersion}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checkingVersion ? 'animate-spin' : ''}`} />
+                Check {checkVersion}
+              </Button>
+            </div>
+            <div className="grid gap-1">
+              {versionStatus.containers.map(container => (
+                <div key={container.role} className="flex items-center justify-between gap-3 text-muted-foreground">
+                  <span className="capitalize">{container.role}</span>
+                  <span className="font-mono truncate" title={`${container.current_image || 'missing'} → ${container.image}`}>
+                    {container.current_image_id || 'missing'} → {container.target_image_id || 'unknown'}
+                  </span>
+                  {container.update_available
+                    ? <Badge variant="outline" className="text-xs">stale</Badge>
+                    : <Badge variant="secondary" className="text-xs">current</Badge>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Input
@@ -774,10 +823,11 @@ function VersionUpgradeCard ({ instance }: { instance: any })
             onClick={handleUpgrade}
             disabled={upgradeMutation.isPending}
             className="shrink-0"
+            variant={hasUpdate ? 'default' : 'outline'}
           >
             {upgradeMutation.isPending
               ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Upgrading…</>
-              : <><ArrowUpCircle className="h-4 w-4 mr-2" />Upgrade</>
+              : <><ArrowUpCircle className="h-4 w-4 mr-2" />{hasUpdate ? `Update to ${checkVersion}` : 'Upgrade'}</>
             }
           </Button>
         </div>
@@ -2120,6 +2170,7 @@ function ContainersTab ({ instanceId }: { instanceId: string })
     backend: 'Backend',
     dashboard: 'Dashboard',
     postgres: 'Postgres',
+    betterauth: 'Better Auth',
   };
 
   const containers = data?.containers ?? [];

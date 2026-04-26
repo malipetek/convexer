@@ -91,6 +91,9 @@ import { sendPush, supportedPushProviders, PushProvider } from './push.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
+const CONVEX_BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend';
+const CONVEX_DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard';
+const BETTERAUTH_IMAGE = 'convexer-better-auth-sidecar:latest';
 
 // Read version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -116,6 +119,93 @@ function readCurrentVersion (): string
 const CURRENT_VERSION = readCurrentVersion();
 
 const router = Router();
+
+type InstanceContainerRole = 'backend' | 'dashboard' | 'betterauth';
+
+async function getImageId (image: string): Promise<string | null>
+{
+  try {
+    const info = await docker.getImage(image).inspect();
+    return info.Id || null;
+  } catch {
+    return null;
+  }
+}
+
+function shortImageId (imageId: string | null): string | null
+{
+  return imageId?.replace(/^sha256:/, '').slice(0, 12) || null;
+}
+
+async function getInstanceImageStatus (
+  instance: Instance,
+  targetVersion = 'latest',
+  pullRemote = false
+): Promise<{
+    current_version: string;
+    target_version: string;
+    has_update: boolean;
+    containers: Array<{
+      role: InstanceContainerRole;
+      image: string;
+      current_image: string | null;
+      current_image_id: string | null;
+      target_image_id: string | null;
+      update_available: boolean;
+      running: boolean;
+    }>;
+  }>
+{
+  const tag = targetVersion || 'latest';
+  const desiredImages: Record<InstanceContainerRole, string> = {
+    backend: `${CONVEX_BACKEND_IMAGE}:${tag}`,
+    dashboard: `${CONVEX_DASHBOARD_IMAGE}:${tag}`,
+    betterauth: BETTERAUTH_IMAGE,
+  };
+
+  if (pullRemote) {
+    await pullImage(desiredImages.backend);
+    await pullImage(desiredImages.dashboard);
+  }
+
+  const containers = await Promise.all((Object.keys(desiredImages) as InstanceContainerRole[]).map(async (role) =>
+  {
+    let currentImageId: string | null = null;
+    let currentImage: string | null = null;
+    let running = false;
+    const container = await getContainerByRole(instance, role);
+    if (container) {
+      try {
+        const info = await container.inspect();
+        currentImageId = info.Image || null;
+        currentImage = info.Config?.Image || null;
+        running = Boolean(info.State?.Running);
+      } catch {
+        // Treat missing/uninspectable containers as not running.
+      }
+    }
+
+    const targetImageId = await getImageId(desiredImages[role]);
+    const updateAvailable = Boolean(currentImageId && targetImageId && currentImageId !== targetImageId);
+
+    return {
+      role,
+      image: desiredImages[role],
+      current_image: currentImage,
+      current_image_id: shortImageId(currentImageId),
+      target_image_id: shortImageId(targetImageId),
+      update_available: updateAvailable,
+      running,
+    };
+  }));
+
+  return {
+    current_version: instance.detected_version || instance.pinned_version || 'latest',
+    target_version: tag,
+    has_update: containers.some(container => container.update_available),
+    containers,
+  };
+}
 
 // Login
 router.post('/login', (req: Request, res: Response) => {
@@ -708,8 +798,8 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
   try {
     // Pull and validate target images before making any destructive changes
     const tag = targetVersion === 'latest' ? 'latest' : targetVersion;
-    const backendImage = `ghcr.io/get-convex/convex-backend:${tag}`;
-    const dashboardImage = `ghcr.io/get-convex/convex-dashboard:${tag}`;
+    const backendImage = `${CONVEX_BACKEND_IMAGE}:${tag}`;
+    const dashboardImage = `${CONVEX_DASHBOARD_IMAGE}:${tag}`;
     try {
       await pullImage(backendImage);
       await pullImage(dashboardImage);
@@ -759,6 +849,12 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
       console.warn('Failed to stop/remove dashboard:', err.message);
     }
 
+    try {
+      await removeBetterAuthSidecar(instance);
+    } catch (err: any) {
+      console.warn('Failed to stop/remove betterauth sidecar:', err.message);
+    }
+
     // Recreate with new version
     const updated = getInstance(instance.id);
     if (updated) {
@@ -775,6 +871,26 @@ router.post('/instances/:id/upgrade', async (req: Request, res: Response) =>
     });
   } catch (err: any) {
     console.error('Upgrade failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/instances/:id/version/check', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const targetVersion = typeof req.query.targetVersion === 'string' && req.query.targetVersion.trim()
+    ? req.query.targetVersion.trim()
+    : 'latest';
+
+  try {
+    const status = await getInstanceImageStatus(instance, targetVersion, true);
+    res.json(status);
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -1021,6 +1137,15 @@ docker build -t convexer-convexer:pending -f Dockerfile . 2>&1 | tee -a /repo/se
   exit 1
 }
 
+echo "[updater] building Better Auth sidecar image as convexer-better-auth-sidecar:pending"
+docker build -t convexer-better-auth-sidecar:pending --target betterauth-runtime -f Dockerfile . 2>&1 | tee -a /repo/server/data/.update_logs || {
+  echo "[updater] BETTER AUTH SIDECAR BUILD FAILED - rolling back git"
+  git checkout $(cat /repo/server/data/.rollback_commit) || true
+  docker rmi convexer-convexer:pending 2>/dev/null || true
+  echo "[updater] old container still running"
+  exit 1
+}
+
 echo "[updater] starting new container on port 4001 as convexer-pending"
 docker rm -f convexer-pending 2>/dev/null || true
 docker run -d --name convexer-pending \\
@@ -1057,6 +1182,7 @@ if [ "$HEALTH_OK" = "0" ]; then
   docker logs convexer-pending --tail 50 || true
   docker rm -f convexer-pending || true
   docker rmi convexer-convexer:pending || true
+  docker rmi convexer-better-auth-sidecar:pending || true
   echo "[updater] rolling back git to previous commit"
   git checkout $(cat /repo/server/data/.rollback_commit) || true
   echo "[updater] old container still running on port 4000"
@@ -1074,9 +1200,11 @@ docker stop convexer-pending
 
 echo "[updater] removing old image tag"
 docker rmi convexer-convexer:latest 2>/dev/null || true
+docker rmi convexer-better-auth-sidecar:latest 2>/dev/null || true
 
 echo "[updater] tagging pending as latest (keeping pending tag for rollback)"
 docker tag convexer-convexer:pending convexer-convexer:latest
+docker tag convexer-better-auth-sidecar:pending convexer-better-auth-sidecar:latest
 
 echo "[updater] starting final container"
 docker run -d --name convexer \\
@@ -1119,6 +1247,7 @@ docker run -d --name convexer \\
   echo "[updater] rolling back git to previous commit"
   git checkout $(cat /repo/server/data/.rollback_commit) || true
   echo "[updater] fallback container running on port 4000"
+  docker rmi convexer-better-auth-sidecar:pending 2>/dev/null || true
   exit 1
 }
 
@@ -1161,12 +1290,14 @@ if [ "$HEALTH_OK" = "0" ]; then
   echo "[updater] rolling back git to previous commit"
   git checkout $(cat /repo/server/data/.rollback_commit) || true
   echo "[updater] fallback container running on port 4000"
+  docker rmi convexer-better-auth-sidecar:pending 2>/dev/null || true
   exit 1
 fi
 
 echo "[updater] cleaning up"
 docker rm -f convexer-pending 2>/dev/null || true
 docker rmi convexer-convexer:pending 2>/dev/null || true
+docker rmi convexer-better-auth-sidecar:pending 2>/dev/null || true
 
 echo "[updater] blue-green deploy complete!"
 `;

@@ -75,13 +75,13 @@ export const api = {
     request<{ instance: Instance; renamed?: string }>(`/archived-instances/${id}/restore`, { method: 'POST' }),
   forgetInstance: (id: string) =>
     request<void>(`/instances/${id}/forget`, { method: 'POST' }),
-  getLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' = 'backend', tail = 200) =>
+  getLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' | 'betterauth' = 'backend', tail = 200) =>
     request<{ logs: string }>(`/instances/${id}/logs?container=${container}&tail=${tail}`),
-  downloadLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' = 'backend') =>
+  downloadLogs: (id: string, container: 'backend' | 'dashboard' | 'postgres' | 'betterauth' = 'backend') =>
     fetch(`${BASE}/instances/${id}/logs/download?container=${container}`, {
       headers: { 'Authorization': `Bearer ${getToken()}` },
     }),
-  restartContainer: (id: string, container: 'backend' | 'dashboard' | 'postgres' = 'backend') =>
+  restartContainer: (id: string, container: 'backend' | 'dashboard' | 'postgres' | 'betterauth' = 'backend') =>
     request<{ success: boolean }>(`/instances/${id}/restart?container=${container}`, {
       method: 'POST',
     }),
@@ -108,6 +108,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ targetVersion }),
     }),
+  checkInstanceVersion: (id: string, targetVersion = 'latest') =>
+    request<{
+      current_version: string;
+      target_version: string;
+      has_update: boolean;
+      containers: Array<{
+        role: 'backend' | 'dashboard' | 'betterauth';
+        image: string;
+        current_image: string | null;
+        current_image_id: string | null;
+        target_image_id: string | null;
+        update_available: boolean;
+        running: boolean;
+      }>;
+    }>(`/instances/${id}/version/check?targetVersion=${encodeURIComponent(targetVersion)}`),
   getStats: (id: string) =>
     request<InstanceStats>(`/instances/${id}/stats`),
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),
