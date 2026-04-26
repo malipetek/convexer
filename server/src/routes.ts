@@ -1023,11 +1023,7 @@ router.get('/version', (_req: Request, res: Response) =>
 router.get('/version/check', async (_req: Request, res: Response) =>
 {
   try {
-    const GITHUB_REPO = process.env.GITHUB_REPO;
-    if (!GITHUB_REPO) {
-      res.status(400).json({ error: 'GITHUB_REPO environment variable not set' });
-      return;
-    }
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'malipetek/convexer';
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Optional, for higher rate limits / private repos
 
     const baseHeaders: Record<string, string> = {
@@ -1218,6 +1214,8 @@ docker run -d --name convexer \\
   -e DOMAIN=\${DOMAIN} \\
   -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
   -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+  -e GITHUB_REPO=\${GITHUB_REPO:-malipetek/convexer} \\
+  -e GITHUB_TOKEN=\${GITHUB_TOKEN:-} \\
   --restart unless-stopped \\
   --label "traefik.enable=true" \\
   --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
@@ -1238,6 +1236,8 @@ docker run -d --name convexer \\
     -e DOMAIN=\${DOMAIN} \\
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+    -e GITHUB_REPO=\${GITHUB_REPO:-malipetek/convexer} \\
+    -e GITHUB_TOKEN=\${GITHUB_TOKEN:-} \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
@@ -1281,6 +1281,8 @@ if [ "$HEALTH_OK" = "0" ]; then
     -e DOMAIN=\${DOMAIN} \\
     -e HOST_PROJECT_PATH=\${HOST_PROJECT_PATH:-/home/convexer} \\
     -e UPDATE_BRANCH=\${UPDATE_BRANCH:-main} \\
+    -e GITHUB_REPO=\${GITHUB_REPO:-malipetek/convexer} \\
+    -e GITHUB_TOKEN=\${GITHUB_TOKEN:-} \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
