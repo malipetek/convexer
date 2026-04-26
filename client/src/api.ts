@@ -123,6 +123,31 @@ export const api = {
         running: boolean;
       }>;
     }>(`/instances/${id}/version/check?targetVersion=${encodeURIComponent(targetVersion)}`),
+  getContainerUpdates: (id: string, targetVersion = 'latest') =>
+    request<{
+      current_version: string;
+      target_version: string;
+      has_update: boolean;
+      containers: Array<{
+        role: 'backend' | 'dashboard' | 'betterauth';
+        image: string;
+        current_image: string | null;
+        current_image_id: string | null;
+        target_image_id: string | null;
+        update_available: boolean;
+        running: boolean;
+        restart_count: number;
+        health_status: string | null;
+        stale: boolean;
+        broken: boolean;
+        reason: string | null;
+      }>;
+    }>(`/instances/${id}/container-updates?targetVersion=${encodeURIComponent(targetVersion)}`),
+  applyContainerUpdates: (id: string, payload: { targetVersion?: string; roles?: string[]; backup?: boolean }) =>
+    request<{ success: boolean; results: Array<{ role: string; success: boolean; error?: string }>; backup_ids?: string[] }>(`/instances/${id}/container-updates/apply`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getStats: (id: string) =>
     request<InstanceStats>(`/instances/${id}/stats`),
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),

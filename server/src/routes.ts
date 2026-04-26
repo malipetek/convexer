@@ -895,6 +895,197 @@ router.get('/instances/:id/version/check', async (req: Request, res: Response) =
   }
 });
 
+// Get container updates status for an instance
+router.get('/instances/:id/container-updates', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const targetVersion = typeof req.query.targetVersion === 'string' && req.query.targetVersion.trim()
+    ? req.query.targetVersion.trim()
+    : 'latest';
+
+  try {
+    const imageStatus = await getInstanceImageStatus(instance, targetVersion, false);
+
+    // Enrich with additional container status information
+    const enrichedContainers = await Promise.all(
+      imageStatus.containers.map(async (container) =>
+      {
+        const containerObj = await getContainerByRole(instance, container.role);
+        let restartCount = 0;
+        let healthStatus: string | null = null;
+        let stale = false;
+        let broken = false;
+        let reason: string | null = null;
+
+        if (containerObj) {
+          try {
+            const info = await containerObj.inspect();
+            restartCount = info.RestartCount || 0;
+            healthStatus = info.State.Health?.Status || null;
+
+            // Determine if container is stale (image ID mismatch)
+            if (container.update_available) {
+              stale = true;
+              reason = `Image ${container.current_image_id} differs from target ${container.target_image_id}`;
+            }
+
+            // Determine if container is broken (unhealthy or restarting frequently)
+            if (healthStatus === 'unhealthy') {
+              broken = true;
+              reason = reason ? `${reason}; unhealthy` : 'Container health check failed';
+            }
+            if (restartCount > 5) {
+              broken = true;
+              reason = reason ? `${reason}; high restart count (${restartCount})` : `High restart count (${restartCount})`;
+            }
+          } catch (err: any) {
+            broken = true;
+            reason = `Failed to inspect container: ${err.message}`;
+          }
+        } else {
+          // Container doesn't exist
+          stale = true;
+          broken = true;
+          reason = 'Container does not exist';
+        }
+
+        return {
+          ...container,
+          restart_count: restartCount,
+          health_status: healthStatus,
+          stale,
+          broken,
+          reason,
+        };
+      })
+    );
+
+    res.json({
+      current_version: imageStatus.current_version,
+      target_version: imageStatus.target_version,
+      has_update: imageStatus.has_update,
+      containers: enrichedContainers,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Apply container updates (recreate stale/broken containers)
+router.post('/instances/:id/container-updates/apply', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const { targetVersion = 'latest', roles = ['backend', 'dashboard', 'betterauth'], backup = true } = req.body;
+
+  if (!Array.isArray(roles) || roles.length === 0) {
+    res.status(400).json({ error: 'roles must be a non-empty array' });
+    return;
+  }
+
+  const validRoles = ['backend', 'dashboard', 'betterauth'];
+  const invalidRoles = roles.filter((r: string) => !validRoles.includes(r));
+  if (invalidRoles.length > 0) {
+    res.status(400).json({ error: `Invalid roles: ${invalidRoles.join(', ')}` });
+    return;
+  }
+
+  try {
+    // Pull target images first
+    const tag = targetVersion === 'latest' ? 'latest' : targetVersion;
+    const imagesToPull: string[] = [];
+    if (roles.includes('backend')) imagesToPull.push(`${CONVEX_BACKEND_IMAGE}:${tag}`);
+    if (roles.includes('dashboard')) imagesToPull.push(`${CONVEX_DASHBOARD_IMAGE}:${tag}`);
+    if (roles.includes('betterauth')) imagesToPull.push(BETTERAUTH_IMAGE);
+
+    for (const image of imagesToPull) {
+      await pullImage(image);
+    }
+
+    // Create backup if requested
+    let backupIds: string[] = [];
+    if (backup) {
+      const dbBackupId = randomUUID();
+      const volBackupId = randomUUID();
+      try {
+        const dbBackup = await backupDatabase(instance, dbBackupId, 'Pre-container-update backup');
+        if (dbBackup.success) backupIds.push(dbBackupId);
+      } catch (err: any) {
+        console.warn(`Pre-update DB backup failed:`, err.message);
+      }
+
+      // Only backup volume if updating backend or dashboard (sidecar-only recreation needs DB backup only)
+      if (roles.includes('backend') || roles.includes('dashboard')) {
+        try {
+          const volBackup = await backupVolume(instance, volBackupId, 'Pre-container-update backup');
+          if (volBackup.success) backupIds.push(volBackupId);
+        } catch (err: any) {
+          console.warn(`Pre-update volume backup failed:`, err.message);
+        }
+      }
+    }
+
+    // Recreate selected containers
+    const results: Array<{ role: string; success: boolean; error?: string }> = [];
+
+    for (const role of roles) {
+      try {
+        if (role === 'betterauth') {
+          await removeBetterAuthSidecar(instance);
+          await createBetterAuthSidecar(instance);
+          results.push({ role, success: true });
+        } else if (role === 'backend') {
+          const container = await getContainerByRole(instance, 'backend');
+          if (container) {
+            await container.stop();
+            await container.remove();
+          }
+          // Recreate backend by calling createAndStartInstance with a hook that skips postgres
+          await createAndStartInstance(instance, async () =>
+          {
+            // No-op - postgres already running
+          });
+          results.push({ role, success: true });
+        } else if (role === 'dashboard') {
+          const container = await getContainerByRole(instance, 'dashboard');
+          if (container) {
+            await container.stop();
+            await container.remove();
+          }
+          // Recreate dashboard
+          await createAndStartInstance(instance);
+          results.push({ role, success: true });
+        }
+      } catch (err: any) {
+        results.push({ role, success: false, error: err.message });
+      }
+    }
+
+    // Update detected version if backend was updated
+    if (roles.includes('backend') && targetVersion !== 'latest') {
+      updateInstance(instance.id, { detected_version: targetVersion });
+    }
+
+    res.json({
+      success: true,
+      results,
+      backup_ids: backupIds.length > 0 ? backupIds : undefined,
+    });
+  } catch (err: any) {
+    console.error('Container update failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get instance stats (CPU, memory, disk, network)
 router.get('/instances/:id/stats', async (req: Request, res: Response) =>
 {

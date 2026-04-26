@@ -432,10 +432,23 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
 
   const databaseUrl = `postgres://postgres:${postgresPassword}@convexer-postgres-${instance.name}:5432/${dbName}?sslmode=disable`;
 
-  // Determine public base URL for the sidecar
+  // Determine public base URL for the sidecar from the actual Better Auth public domain
+  // Default to https://{instance}-auth.{DOMAIN} unless explicitly overridden
   let baseUrl = `http://localhost:${instance.betterauth_port}`;
   if (domain) {
-    baseUrl = `http://${instance.name}-auth.${domain}`;
+    baseUrl = `https://${instance.name}-auth.${domain}`;
+  }
+
+  // Allow explicit override via BETTERAUTH_DOMAIN in extra_env
+  if (instance.extra_env) {
+    try {
+      const env = JSON.parse(instance.extra_env);
+      if (env.BETTERAUTH_DOMAIN) {
+        baseUrl = env.BETTERAUTH_DOMAIN.startsWith('http') ? env.BETTERAUTH_DOMAIN : `https://${env.BETTERAUTH_DOMAIN}`;
+      }
+    } catch {
+      // Use computed baseUrl if parsing fails
+    }
   }
 
   // Get BETTER_AUTH_SECRET from extra_env if provided, otherwise generate one
@@ -458,6 +471,10 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
   }
   if (!betterAuthSecret) {
     betterAuthSecret = crypto.randomBytes(32).toString('hex');
+    // Persist the generated secret to extra_env so it survives container recreation
+    extraEnv.BETTER_AUTH_SECRET = betterAuthSecret;
+    const updatedExtraEnv = JSON.stringify(extraEnv);
+    updateInstance(instance.id, { extra_env: updatedExtraEnv });
   }
 
   const betterauthTraefikLabels = getBetterAuthTraefikLabels(instance, domain);
@@ -473,6 +490,18 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
           '4200/tcp': [{ HostPort: String(instance.betterauth_port) }],
         },
         RestartPolicy: { Name: 'unless-stopped' },
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [NETWORK_NAME]: {}
+        }
+      },
+      Healthcheck: {
+        Test: ['CMD-SHELL', 'curl -f http://localhost:4200/health || exit 1'],
+        Interval: 10000000000, // 10 seconds
+        Timeout: 5000000000, // 5 seconds
+        Retries: 3,
+        StartPeriod: 30000000000, // 30 seconds
       },
       Env: [
         `DATABASE_URL=${databaseUrl}`,
@@ -495,11 +524,28 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
 
   await container.start();
 
+  // Wait for sidecar health check
   try {
-    const network = docker.getNetwork(NETWORK_NAME);
-    await network.connect({ Container: container.id });
+    const healthTimeout = 60000; // 60 seconds
+    const start = Date.now();
+    while (Date.now() - start < healthTimeout) {
+      try {
+        const info = await container.inspect();
+        if (info.State.Health?.Status === 'healthy') {
+          console.log(`Better Auth sidecar for ${instance.name} is healthy`);
+          break;
+        }
+        if (info.State.Health?.Status === 'unhealthy') {
+          console.warn(`Better Auth sidecar for ${instance.name} is unhealthy`);
+          break;
+        }
+      } catch {
+        // Health check not yet available
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
   } catch (err: any) {
-    console.warn(`Failed to connect Better Auth sidecar to network:`, err.message);
+    console.warn(`Failed to wait for Better Auth sidecar health for ${instance.name}:`, err.message);
   }
 
   updateInstance(instance.id, { betterauth_container_id: container.id });

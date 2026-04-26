@@ -33,6 +33,56 @@ const pool = new Pool({
 
 async function ensureBetterAuthSchema ()
 {
+  // Create tables in dependency order
+  // user table (no dependencies)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      email_verified BOOLEAN DEFAULT false,
+      name TEXT,
+      image TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+
+  // session table (depends on user)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+    )
+  `);
+
+  // account table (depends on user)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      access_token TEXT,
+      refresh_token TEXT,
+      id_token TEXT,
+      access_token_expires_at TIMESTAMP,
+      refresh_token_expires_at TIMESTAMP,
+      scope TEXT,
+      password TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+      UNIQUE (provider_id, account_id)
+    )
+  `);
+
+  // verification table (no dependencies)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS verification (
       id TEXT PRIMARY KEY,
@@ -44,30 +94,36 @@ async function ensureBetterAuthSchema ()
     )
   `);
 
+  // jwks table (no dependencies) - supports both snake_case and camelCase for JWT plugin
   await pool.query(`
     CREATE TABLE IF NOT EXISTS jwks (
       id TEXT PRIMARY KEY,
-      "publicKey" TEXT,
-      "privateKey" TEXT,
-      "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-      "expiresAt" TIMESTAMP,
       public_key TEXT,
       private_key TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
-      expires_at TIMESTAMP
+      expires_at TIMESTAMP,
+      "publicKey" TEXT,
+      "privateKey" TEXT,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+      "expiresAt" TIMESTAMP
     )
   `);
 
+  // Add missing columns with ALTER TABLE IF NOT EXISTS
+  // jwks table - add camelCase columns for JWT plugin
   await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "publicKey" TEXT');
   await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "privateKey" TEXT');
   await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP NOT NULL DEFAULT now()');
   await pool.query('ALTER TABLE jwks ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP');
+  // Make snake_case columns nullable for compatibility
   await pool.query("ALTER TABLE jwks ALTER COLUMN public_key DROP NOT NULL").catch(() => undefined);
   await pool.query("ALTER TABLE jwks ALTER COLUMN private_key DROP NOT NULL").catch(() => undefined);
 
+  // session table - add optional columns
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS ip_address TEXT');
   await pool.query('ALTER TABLE session ADD COLUMN IF NOT EXISTS user_agent TEXT');
 
+  // account table - add OAuth and password columns
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS access_token TEXT');
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS refresh_token TEXT');
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS id_token TEXT');
@@ -75,6 +131,12 @@ async function ensureBetterAuthSchema ()
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS refresh_token_expires_at TIMESTAMP');
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS scope TEXT');
   await pool.query('ALTER TABLE account ADD COLUMN IF NOT EXISTS password TEXT');
+
+  // Create indexes for performance
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_account_user_id ON account(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_verification_identifier ON verification(identifier)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_verification_expires_at ON verification(expires_at)');
 }
 
 const plugins: any[] = [];
@@ -160,6 +222,18 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   console.log('Google social provider enabled');
 }
 
+// Build deterministic trusted origins from BASE_URL and related URLs
+const trustedOrigins: string[] = [];
+if (BASE_URL) {
+  trustedOrigins.push(BASE_URL);
+  // Add localhost for development
+  if (BASE_URL.includes('localhost')) {
+    trustedOrigins.push('http://localhost:*', 'http://127.0.0.1:*');
+  }
+}
+// Add development origins
+trustedOrigins.push('http://localhost:*', 'http://127.0.0.1:*');
+
 let auth;
 try {
   auth = betterAuth({
@@ -172,7 +246,7 @@ try {
     },
     socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
     plugins,
-    trustedOrigins: ['*'],
+    trustedOrigins,
     // Map Better Auth field names to the existing snake_case PostgreSQL schema
     user: {
       fields: {

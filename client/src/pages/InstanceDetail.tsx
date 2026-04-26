@@ -15,6 +15,7 @@ import { ArrowLeft, Copy, Settings, Activity, Play, Square, Trash2, RefreshCw, D
 import MetricsBadge from '../components/MetricsBadge';
 import MetricsGauge from '../components/MetricsGauge';
 import InstanceMetrics, { type MetricSample } from '../components/InstanceMetrics';
+import ContainerUpdates from '../components/ContainerUpdates';
 import type { PushProvider } from '../types';
 
 const SCHEDULE_PRESETS = [
@@ -259,6 +260,8 @@ export default function InstanceDetail() {
 
           <TabsContent value="overview">
             <div className="space-y-6">
+              <ContainerUpdates instanceId={instance.id} />
+
               <Card>
                 <CardHeader>
                   <CardTitle>Actions</CardTitle>
@@ -703,7 +706,10 @@ export default function InstanceDetail() {
           </TabsContent>
 
           <TabsContent value="containers">
-            <ContainersTab instanceId={instance.id} />
+            <div className="space-y-4">
+              <ContainerUpdates instanceId={instance.id} />
+              <ContainersTab instanceId={instance.id} />
+            </div>
           </TabsContent>
         </Tabs>
       </div>
