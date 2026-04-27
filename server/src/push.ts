@@ -1,3 +1,6 @@
+import { ApnsClient } from 'apns2';
+import fs from 'fs';
+
 export type PushProvider = 'unifiedpush' | 'webhook' | 'fcm' | 'apns' | 'webpush';
 
 export interface PushPayload
@@ -30,6 +33,16 @@ export interface WebhookPushConfig
   method?: 'POST' | 'PUT' | 'PATCH';
   auth_token?: string;
   headers?: Record<string, string>;
+}
+
+export interface ApnsConfig
+{
+  key?: string;
+  key_id?: string;
+  team_id?: string;
+  app_id?: string;
+  production?: boolean;
+  device_tokens?: string[];
 }
 
 function parseJsonObject (value: string): Record<string, unknown>
@@ -181,6 +194,59 @@ async function sendWebhook (
   }
 }
 
+async function sendApns (
+  rawConfig: Record<string, unknown>,
+  payload: PushPayload
+): Promise<PushSendResult[]>
+{
+  const config = rawConfig as ApnsConfig;
+  const key = typeof config.key === 'string' ? config.key.trim() : '';
+  const keyId = typeof config.key_id === 'string' ? config.key_id.trim() : '';
+  const teamId = typeof config.team_id === 'string' ? config.team_id.trim() : '';
+  const appId = typeof config.app_id === 'string' ? config.app_id.trim() : '';
+  const deviceTokens = getStringArray(config.device_tokens);
+
+  if (!key || !keyId || !teamId || !appId) {
+    return [{ ok: false, target: 'apns', error: 'APNS config requires key, key_id, team_id, and app_id' }];
+  }
+
+  if (deviceTokens.length === 0) {
+    return [{ ok: false, target: 'apns', error: 'APNS config requires at least one device_token' }];
+  }
+
+  try {
+    const client = new ApnsClient({
+      team: teamId,
+      keyId: keyId,
+      signingKey: key,
+      defaultTopic: appId,
+    });
+
+    const notification = {
+      aps: { alert: { title: payload.title, body: payload.body } },
+      ...(payload.data ?? {}),
+    };
+
+    const results = await Promise.allSettled(
+      deviceTokens.map(async (deviceToken) =>
+      {
+        const result = await client.send(notification, deviceToken);
+        return {
+          ok: result.success,
+          target: deviceToken,
+          statusCode: result.response?.statusCode,
+          responseBody: result.response ? JSON.stringify(result.response) : undefined,
+          error: result.success ? undefined : result.response?.reason ?? 'Unknown APNS error',
+        } as PushSendResult;
+      })
+    );
+
+    return results.map(r => r.status === 'fulfilled' ? r.value : { ok: false, target: 'apns', error: 'Promise rejected' });
+  } catch (err: unknown) {
+    return [{ ok: false, target: 'apns', error: err instanceof Error ? err.message : 'Unknown APNS error' }];
+  }
+}
+
 function notImplementedResult (provider: PushProvider): PushSendResult[]
 {
   return [{
@@ -212,8 +278,9 @@ export async function sendPush (
       return sendUnifiedPush(parsedConfig, payload);
     case 'webhook':
       return sendWebhook(parsedConfig, payload);
-    case 'fcm':
     case 'apns':
+      return sendApns(parsedConfig, payload);
+    case 'fcm':
     case 'webpush':
       return notImplementedResult(provider);
     default:

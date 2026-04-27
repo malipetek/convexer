@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@types/bcrypt": "^6.0.0",
+    "apns2": "^12.2.0",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
