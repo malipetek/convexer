@@ -225,9 +225,7 @@ async function sendApns (
 
     const notifications = deviceTokens.map(deviceToken =>
       new Notification(deviceToken, {
-        aps: {
-          alert: `${payload.title}: ${payload.body}`,
-        },
+        alert: `${payload.title}: ${payload.body}`,
       })
     );
 
