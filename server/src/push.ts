@@ -1,4 +1,4 @@
-import { ApnsClient } from 'apns2';
+import { ApnsClient, Notification } from 'apns2';
 import fs from 'fs';
 
 export type PushProvider = 'unifiedpush' | 'webhook' | 'fcm' | 'apns' | 'webpush';
@@ -222,26 +222,29 @@ async function sendApns (
       defaultTopic: appId,
     });
 
-    const notification = {
-      aps: { alert: { title: payload.title, body: payload.body } },
-      ...(payload.data ?? {}),
-    };
-
-    const results = await Promise.allSettled(
-      deviceTokens.map(async (deviceToken) =>
-      {
-        const result = await client.send(notification, deviceToken);
-        return {
-          ok: result.success,
-          target: deviceToken,
-          statusCode: result.response?.statusCode,
-          responseBody: result.response ? JSON.stringify(result.response) : undefined,
-          error: result.success ? undefined : result.response?.reason ?? 'Unknown APNS error',
-        } as PushSendResult;
+    const notifications = deviceTokens.map(deviceToken =>
+      new Notification(deviceToken, {
+        alert: { title: payload.title, body: payload.body },
+        ...(payload.data ?? {}),
       })
     );
 
-    return results.map(r => r.status === 'fulfilled' ? r.value : { ok: false, target: 'apns', error: 'Promise rejected' });
+    const results = await client.sendMany(notifications);
+
+    return results.map((result, index) => {
+      if ('error' in result) {
+        return {
+          ok: false,
+          target: deviceTokens[index],
+          statusCode: result.error.statusCode,
+          error: result.error.reason ?? 'Unknown APNS error',
+        };
+      }
+      return {
+        ok: true,
+        target: deviceTokens[index],
+      };
+    });
   } catch (err: unknown) {
     return [{ ok: false, target: 'apns', error: err instanceof Error ? err.message : 'Unknown APNS error' }];
   }
