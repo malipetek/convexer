@@ -1,6 +1,6 @@
 {
   "name": "convexer",
-  "version": "1.7.29",
+  "version": "1.7.31",
   "private": true,
   "workspaces": [
     "server",
