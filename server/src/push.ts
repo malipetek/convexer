@@ -1,4 +1,4 @@
-import { ApnsClient, Notification, PushType } from 'apns2';
+import { ApnsClient, Notification, PushType, Host } from 'apns2';
 import fs from 'fs';
 
 export type PushProvider = 'unifiedpush' | 'webhook' | 'fcm' | 'apns' | 'webpush';
@@ -220,6 +220,7 @@ async function sendApns (
       keyId: keyId,
       signingKey: key,
       defaultTopic: appId,
+      host: config.production === true ? Host.production : Host.development,
     });
 
     const notifications = deviceTokens.map(deviceToken =>
