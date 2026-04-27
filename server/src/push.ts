@@ -231,7 +231,6 @@ async function sendApns (
             body: payload.body,
           },
         },
-        ...(payload.data ?? {}),
       })
     );
 
