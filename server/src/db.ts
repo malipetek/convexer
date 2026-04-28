@@ -366,6 +366,35 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS update_jobs (
+    id TEXT PRIMARY KEY,
+    target_version TEXT NOT NULL,
+    strategy TEXT NOT NULL DEFAULT 'image',
+    status TEXT NOT NULL DEFAULT 'pending',
+    progress INTEGER NOT NULL DEFAULT 0,
+    logs TEXT,
+    health_result TEXT,
+    rollback_ref TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS action_audit_logs (
+    id TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    actor TEXT,
+    target TEXT,
+    status TEXT NOT NULL,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 export function getAllInstances(): Instance[] {
   return db.prepare('SELECT * FROM instances WHERE archived_at IS NULL ORDER BY created_at DESC').all() as Instance[];
 }
@@ -592,6 +621,33 @@ export interface PushDeliveryLog
   response_code?: number | null;
   response_body?: string | null;
   error_message?: string | null;
+  created_at: string;
+}
+
+export interface UpdateJob
+{
+  id: string;
+  target_version: string;
+  strategy: string;
+  status: string;
+  progress: number;
+  logs?: string | null;
+  health_result?: string | null;
+  rollback_ref?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface ActionAuditLog
+{
+  id: string;
+  action: string;
+  actor?: string | null;
+  target?: string | null;
+  status: string;
+  details?: string | null;
   created_at: string;
 }
 
@@ -886,4 +942,77 @@ export function createPushDeliveryLog (
     error_message: log.error_message ?? null,
   });
   return db.prepare('SELECT * FROM push_delivery_logs WHERE id = ?').get(log.id) as PushDeliveryLog;
+}
+
+export function createUpdateJob (job: {
+  id: string;
+  target_version: string;
+  strategy: string;
+  status?: string;
+  progress?: number;
+  logs?: string | null;
+  rollback_ref?: string | null;
+  started_at?: string | null;
+}): UpdateJob
+{
+  const stmt = db.prepare(`
+    INSERT INTO update_jobs (id, target_version, strategy, status, progress, logs, rollback_ref, started_at)
+    VALUES (@id, @target_version, @strategy, @status, @progress, @logs, @rollback_ref, @started_at)
+  `);
+  stmt.run({
+    ...job,
+    status: job.status ?? 'pending',
+    progress: job.progress ?? 0,
+    logs: job.logs ?? null,
+    rollback_ref: job.rollback_ref ?? null,
+    started_at: job.started_at ?? null,
+  });
+  return db.prepare('SELECT * FROM update_jobs WHERE id = ?').get(job.id) as UpdateJob;
+}
+
+export function getUpdateJob (id: string): UpdateJob | undefined
+{
+  return db.prepare('SELECT * FROM update_jobs WHERE id = ?').get(id) as UpdateJob | undefined;
+}
+
+export function getLatestUpdateJob (): UpdateJob | undefined
+{
+  return db.prepare('SELECT * FROM update_jobs ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as UpdateJob | undefined;
+}
+
+export function updateUpdateJob (id: string, updates: Partial<UpdateJob>): UpdateJob | undefined
+{
+  const allowed = ['status', 'progress', 'logs', 'health_result', 'rollback_ref', 'error_message', 'started_at', 'completed_at'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return getUpdateJob(id);
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  db.prepare(`UPDATE update_jobs SET ${sets} WHERE id = @id`).run({ id, ...updates });
+  return getUpdateJob(id);
+}
+
+export function appendUpdateJobLog (id: string, message: string): UpdateJob | undefined
+{
+  db.prepare('UPDATE update_jobs SET logs = coalesce(logs, \'\') || ? || char(10) WHERE id = ?').run(message, id);
+  return getUpdateJob(id);
+}
+
+export function createActionAuditLog (log: {
+  id: string;
+  action: string;
+  actor?: string | null;
+  target?: string | null;
+  status: string;
+  details?: string | null;
+}): ActionAuditLog
+{
+  db.prepare(`
+    INSERT INTO action_audit_logs (id, action, actor, target, status, details)
+    VALUES (@id, @action, @actor, @target, @status, @details)
+  `).run({
+    ...log,
+    actor: log.actor ?? null,
+    target: log.target ?? null,
+    details: log.details ?? null,
+  });
+  return db.prepare('SELECT * FROM action_audit_logs WHERE id = ?').get(log.id) as ActionAuditLog;
 }

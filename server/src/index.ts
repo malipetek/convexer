@@ -2,11 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import router from './routes.js';
 import { syncInstanceStatuses, ensureImages } from './docker.js';
 import { isAuthEnabled, isValidSession } from './auth.js';
 import Docker from 'dockerode';
 import { initializeBackupScheduler } from './scheduler.js';
+import { runMigrations } from './migrate.js';
+import { asError, err } from './http.js';
+import { parseOrThrow, saveSettingsSchema } from './validation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
@@ -58,24 +60,41 @@ app.get('/api/settings', (_req, res) =>
 
 app.post('/api/settings', (req, res) =>
 {
-  const { hostname } = req.body;
-  if (hostname) {
+  try {
+    const { hostname } = parseOrThrow(saveSettingsSchema, req.body);
     process.env.DOMAIN = hostname;
+    res.json({ success: true, hostname });
+  } catch (error) {
+    const appError = asError(error);
+    err(res, appError.status, appError.code, appError.message, appError.details);
   }
-  res.json({ success: true, hostname: hostname || '' });
 });
 
-// API routes
-app.use('/api', router);
+async function boot(): Promise<void> {
+  try {
+    runMigrations();
+    const routesModule = await import('./routes.js');
+    app.use('/api', routesModule.default);
 
-// Serve static client build in production
-const clientDist = path.join(__dirname, '../../client/dist');
-app.use(express.static(clientDist));
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'));
-});
+    // Serve static client build in production
+    const clientDist = path.join(__dirname, '../../client/dist');
+    app.use(express.static(clientDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
 
-app.listen(PORT, async () =>
+    app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      const appError = asError(error);
+      err(res, appError.status, appError.code, appError.message, appError.details);
+    });
+  } catch (error) {
+    const appError = asError(error);
+    console.error('[boot] failed to initialize routes', appError);
+    process.exit(1);
+  }
+}
+
+boot().then(() => app.listen(PORT, async () =>
 {
   console.log(`Convexer server running on http://localhost:${PORT}`);
 
@@ -98,4 +117,4 @@ app.listen(PORT, async () =>
   } catch (err: any) {
     console.warn('Failed to initialize backup scheduler:', err.message);
   }
-});
+}));

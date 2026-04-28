@@ -52,6 +52,9 @@ services:
       # docker compose build/up. If unset, the update endpoint is disabled.
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-/home/convexer}
       - UPDATE_BRANCH=${UPDATE_BRANCH:-main}
+      - UPDATE_STRATEGY=${UPDATE_STRATEGY:-image}
+      - CONVEXER_IMAGE=${CONVEXER_IMAGE:-convexer-convexer}
+      - BETTERAUTH_IMAGE=${BETTERAUTH_IMAGE:-convexer-better-auth-sidecar}
     labels:
       - traefik.enable=true
       - traefik.http.routers.convexer.rule=Host(`${DOMAIN}`)

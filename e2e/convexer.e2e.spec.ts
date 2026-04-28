@@ -65,11 +65,11 @@ async function authedJson<T>(request: APIRequestContext, token: string, path: st
 }
 
 async function runSql(request: APIRequestContext, token: string, instanceId: string, query: string): Promise<any[]> {
-  const res = await authedJson<{ results: any[] }>(request, token, `/api/instances/${instanceId}/postgres/query`, {
+  const res = await authedJson<{ results?: any[]; data?: { results?: any[] } }>(request, token, `/api/instances/${instanceId}/postgres/query`, {
     method: 'POST',
     data: { query },
   });
-  return res.results;
+  return res.results ?? res.data?.results ?? [];
 }
 
 async function getBackupHistory(request: APIRequestContext, token: string, instanceId: string): Promise<BackupEntry[]> {
@@ -187,4 +187,175 @@ test('fresh setup, create instance, and backup/restore round-trip', async ({ pag
     { id: 1, value: 'alpha' },
     { id: 2, value: 'beta' },
   ]);
+});
+
+test('admin hardening endpoints require auth and return validated contracts', async ({ page, request }) => {
+  const unauthPreflight = await request.get('/api/admin/preflight');
+  expect(unauthPreflight.status()).toBe(401);
+  const unauthRepairNetwork = await request.post('/api/admin/repair/network');
+  expect(unauthRepairNetwork.status()).toBe(401);
+  const unauthRepairRestart = await request.post('/api/admin/repair/restart');
+  expect(unauthRepairRestart.status()).toBe(401);
+  const unauthRepairCleanup = await request.post('/api/admin/repair/cleanup', {
+    data: { confirm: 'prune-builder-cache' },
+  });
+  expect(unauthRepairCleanup.status()).toBe(401);
+
+  await page.goto('/');
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await page.getByTestId('login-password-input').fill(AUTH_PASSWORD);
+  await page.getByTestId('login-submit-button').click();
+  await expect(page.getByTestId('new-instance-button')).toBeVisible();
+
+  const token = await getTokenFromBrowser(page);
+
+  const preflight = await authedJson<any>(request, token, '/api/admin/preflight');
+  const preflightData = preflight.data ?? preflight;
+  expect(typeof preflightData.docker_socket).toBe('boolean');
+  expect(typeof preflightData.network_exists).toBe('boolean');
+  expect(typeof preflightData.update_strategy).toBe('string');
+
+  const diagnostics = await authedJson<any>(request, token, '/api/admin/diagnostics');
+  const diagnosticsData = diagnostics.data ?? diagnostics;
+  expect(diagnosticsData.generated_at).toBeTruthy();
+  expect(diagnosticsData.docker?.server_version).toBeTruthy();
+
+  const networkRepair = await authedJson<any>(request, token, '/api/admin/repair/network', { method: 'POST' });
+  const networkRepairData = networkRepair.data ?? networkRepair;
+  expect(networkRepairData.success).toBe(true);
+  expect(networkRepairData.network).toBe('convexer-net');
+
+  const invalidCleanup = await request.fetch('/api/admin/repair/cleanup', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { confirm: 'wrong-confirmation' },
+  });
+  expect(invalidCleanup.status()).toBe(400);
+  const invalidCleanupBody = await invalidCleanup.json();
+  expect(invalidCleanupBody.error?.code).toBe('VALIDATION_ERROR');
+});
+
+test('validation hardening rejects malformed payloads', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await page.getByTestId('login-password-input').fill(AUTH_PASSWORD);
+  await page.getByTestId('login-submit-button').click();
+  await expect(page.getByTestId('new-instance-button')).toBeVisible();
+
+  const token = await getTokenFromBrowser(page);
+
+  const invalidCreate = await request.fetch('/api/instances', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { name: '', extra_env: { GOOD: 'ok', BAD: 1 } },
+  });
+  expect(invalidCreate.status()).toBe(400);
+  const invalidCreateBody = await invalidCreate.json();
+  expect(invalidCreateBody.error?.code).toBe('VALIDATION_ERROR');
+
+  const validCreate = await authedJson<Instance>(request, token, '/api/instances', {
+    method: 'POST',
+    data: { name: `valid-${Date.now()}`, extra_env: { SITE_DOMAIN: 'x.local' } },
+  });
+  const created = (validCreate as any).data ?? validCreate;
+  expect(created.id).toBeTruthy();
+
+  const invalidHealth = await request.fetch(`/api/instances/${created.id}/health-check-settings`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { health_check_timeout: 1000, postgres_health_check_timeout: 60000 },
+  });
+  expect(invalidHealth.status()).toBe(400);
+  const invalidHealthBody = await invalidHealth.json();
+  expect(invalidHealthBody.error?.code).toBe('VALIDATION_ERROR');
+
+  const invalidPgQuery = await request.fetch(`/api/instances/${created.id}/postgres/query`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { query: '' },
+  });
+  expect(invalidPgQuery.status()).toBe(400);
+  const invalidPgBody = await invalidPgQuery.json();
+  expect(invalidPgBody.error?.code).toBe('VALIDATION_ERROR');
+});
+
+test('update status endpoints expose job-compatible contract', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await page.getByTestId('login-password-input').fill(AUTH_PASSWORD);
+  await page.getByTestId('login-submit-button').click();
+  await expect(page.getByTestId('new-instance-button')).toBeVisible();
+
+  const token = await getTokenFromBrowser(page);
+
+  const updateStart = await request.fetch('/api/version/update', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { targetVersion: 'latest' },
+  });
+  expect(updateStart.status()).toBe(202);
+  const startBody = await updateStart.json();
+  const startData = startBody.data ?? startBody;
+  expect(startData.success).toBe(true);
+  expect(typeof startData.jobId).toBe('string');
+
+  const statusResponse = await authedJson<any>(request, token, '/api/version/update/status');
+  const status = statusResponse.data ?? statusResponse;
+  expect(typeof status.running).toBe('boolean');
+  expect(typeof status.status).toBe('string');
+  expect(typeof status.progress).toBe('number');
+  expect(status.jobId).toBeTruthy();
+
+  const logsResponse = await authedJson<any>(request, token, '/api/version/update/logs');
+  expect(typeof logsResponse.logs).toBe('string');
+});
+
+test('rollback status and diagnostics expose update job metadata', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await page.getByTestId('login-password-input').fill(AUTH_PASSWORD);
+  await page.getByTestId('login-submit-button').click();
+  await expect(page.getByTestId('new-instance-button')).toBeVisible();
+
+  const token = await getTokenFromBrowser(page);
+
+  const updateStart = await request.fetch('/api/version/update', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { targetVersion: 'latest' },
+  });
+  expect(updateStart.status()).toBe(202);
+  const startBody = await updateStart.json();
+  const startData = startBody.data ?? startBody;
+  expect(typeof startData.jobId).toBe('string');
+
+  const rollbackStatusRes = await authedJson<any>(request, token, '/api/version/rollback/status');
+  const rollbackStatus = rollbackStatusRes.data ?? rollbackStatusRes;
+  expect(typeof rollbackStatus.available).toBe('boolean');
+  expect(rollbackStatus).toHaveProperty('commit');
+  expect(rollbackStatus).toHaveProperty('jobId');
+
+  const diagnosticsRes = await authedJson<any>(request, token, '/api/admin/diagnostics');
+  const diagnostics = diagnosticsRes.data ?? diagnosticsRes;
+  expect(diagnostics.latest_update_job).toBeTruthy();
+  expect(diagnostics.latest_update_job.id).toBe(startData.jobId);
+  expect(typeof diagnostics.latest_update_job.status).toBe('string');
 });

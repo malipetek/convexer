@@ -36,7 +36,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
-  return res.json();
+  const payload = await res.json();
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return payload.data as T;
+  }
+  return payload as T;
 }
 
 export async function login(password: string): Promise<string> {
@@ -212,6 +216,24 @@ export const api = {
       }>;
     }>;
   }>('/server/stats'),
+  admin: {
+    getPreflight: () => request<{
+      docker_socket: boolean;
+      network_exists: boolean;
+      data_volume_exists: boolean;
+      backups_volume_exists: boolean;
+      host_project_path_configured: boolean;
+      update_strategy: string;
+      server_version: string;
+    }>('/admin/preflight'),
+    repairNetwork: () => request<{ success: boolean; network: string }>('/admin/repair/network', { method: 'POST' }),
+    repairRestart: () => request<{ success: boolean; container: string }>('/admin/repair/restart', { method: 'POST' }),
+    repairCleanup: () => request<{ success: boolean; stdout: string; stderr: string; before: string; after: string }>('/admin/repair/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'prune-builder-cache' }),
+    }),
+    diagnostics: () => request<any>('/admin/diagnostics'),
+  },
   postgres: {
     listTables: (id: string) => request<{ tables: string[] }>(`/instances/${id}/postgres/tables`),
     getTableSchema: (id: string, name: string) => request<{ schema: any[] }>(`/instances/${id}/postgres/tables/${name}`),

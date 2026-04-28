@@ -672,6 +672,117 @@ function UtilitiesTab ()
   );
 }
 
+function AdminRepairTab ()
+{
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<any>(null);
+  const { data: preflight, refetch, isFetching } = useQuery({
+    queryKey: ['admin-preflight'],
+    queryFn: () => api.admin.getPreflight(),
+    refetchInterval: 30000,
+  });
+
+  const runAction = async (action: 'network' | 'restart' | 'cleanup') =>
+  {
+    setBusyAction(action);
+    try {
+      if (action === 'network') await api.admin.repairNetwork();
+      if (action === 'restart') await api.admin.repairRestart();
+      if (action === 'cleanup') await api.admin.repairCleanup();
+      await refetch();
+      alert(`Action completed: ${action}`);
+    } catch (error: any) {
+      alert(error.message || `Failed: ${action}`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const downloadDiagnostics = async () =>
+  {
+    try {
+      const data = await api.admin.diagnostics();
+      setDiagnostics(data);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `convexer-diagnostics-${Date.now()}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error.message || 'Failed to export diagnostics');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="h-5 w-5" />
+              Preflight Health
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="p-2 bg-muted rounded">Docker socket: <span className="font-mono">{String(preflight?.docker_socket ?? false)}</span></div>
+            <div className="p-2 bg-muted rounded">Network: <span className="font-mono">{String(preflight?.network_exists ?? false)}</span></div>
+            <div className="p-2 bg-muted rounded">Data volume: <span className="font-mono">{String(preflight?.data_volume_exists ?? false)}</span></div>
+            <div className="p-2 bg-muted rounded">Backups volume: <span className="font-mono">{String(preflight?.backups_volume_exists ?? false)}</span></div>
+            <div className="p-2 bg-muted rounded">Update strategy: <span className="font-mono">{preflight?.update_strategy ?? 'unknown'}</span></div>
+            <div className="p-2 bg-muted rounded">Docker server: <span className="font-mono">{preflight?.server_version ?? 'unknown'}</span></div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Repair Actions</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => runAction('network')} disabled={busyAction !== null}>
+            {busyAction === 'network' ? 'Fixing...' : 'Recreate Network'}
+          </Button>
+          <Button variant="outline" onClick={() => runAction('restart')} disabled={busyAction !== null}>
+            {busyAction === 'restart' ? 'Restarting...' : 'Restart Convexer'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (confirm('Prune Docker builder cache now?')) runAction('cleanup');
+            }}
+            disabled={busyAction !== null}
+          >
+            {busyAction === 'cleanup' ? 'Cleaning...' : 'Prune Builder Cache'}
+          </Button>
+          <Button onClick={downloadDiagnostics}>Download Diagnostics</Button>
+        </CardContent>
+      </Card>
+
+      {diagnostics && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest Diagnostics Snapshot</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs bg-black text-green-400 p-3 rounded max-h-64 overflow-auto whitespace-pre-wrap">
+              {JSON.stringify(diagnostics, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const [hostname, setHostname] = useState('');
@@ -905,6 +1016,10 @@ export default function Settings() {
               <Wrench className="h-4 w-4 mr-2" />
               Utilities
             </TabsTrigger>
+            <TabsTrigger value="admin">
+              <Terminal className="h-4 w-4 mr-2" />
+              Admin Repair
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-0">
@@ -1075,6 +1190,10 @@ export default function Settings() {
 
           <TabsContent value="utilities" className="mt-0">
             <UtilitiesTab />
+          </TabsContent>
+
+          <TabsContent value="admin" className="mt-0">
+            <AdminRepairTab />
           </TabsContent>
 
           <TabsContent value="updates" className="mt-0">

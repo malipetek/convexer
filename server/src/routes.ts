@@ -36,7 +36,13 @@ import
   getPushConfig,
   upsertPushConfig,
   getPushDeliveryLogs,
-  createPushDeliveryLog
+  createPushDeliveryLog,
+  createUpdateJob,
+  getLatestUpdateJob,
+  getUpdateJob,
+  updateUpdateJob,
+  appendUpdateJobLog,
+  createActionAuditLog
 } from './db.js';
 import
 {
@@ -88,6 +94,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import path from 'path';
 import { sendPush, supportedPushProviders, PushProvider } from './push.js';
+import { AppError, asError, err, ok } from './http.js';
+import { createInstanceSchema, parseOrThrow, postgresQuerySchema, repairCleanupSchema, rollbackSchema, toExtraEnvJson, updateAppSchema, updateHealthCheckSchema, updateSettingsSchema } from './validation.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -121,6 +129,7 @@ const CURRENT_VERSION = readCurrentVersion();
 const router = Router();
 
 type InstanceContainerRole = 'backend' | 'dashboard' | 'betterauth';
+type UpdateStrategy = 'image' | 'git';
 
 async function getImageId (image: string): Promise<string | null>
 {
@@ -207,6 +216,201 @@ async function getInstanceImageStatus (
   };
 }
 
+function getUpdateStrategy(): UpdateStrategy {
+  return (process.env.UPDATE_STRATEGY || 'image') === 'git' ? 'git' : 'image';
+}
+
+async function checkHealth(url: string, retries = 10, delayMs = 2000): Promise<boolean> {
+  for (let i = 0; i < retries; i += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return true;
+    } catch {
+      // noop
+    }
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
+async function appendJobLog(jobId: string, message: string, progress?: number) {
+  appendUpdateJobLog(jobId, `[${new Date().toISOString()}] ${message}`);
+  if (typeof progress === 'number') {
+    updateUpdateJob(jobId, { progress });
+  }
+}
+
+function audit(action: string, status: string, details?: string, target?: string) {
+  createActionAuditLog({
+    id: randomUUID(),
+    action,
+    status,
+    details: details ?? null,
+    target: target ?? null,
+  });
+}
+
+async function runImageUpdateJob(jobId: string, targetVersion: string) {
+  const baseImage = process.env.CONVEXER_IMAGE || 'convexer-convexer';
+  const sidecarImage = process.env.BETTERAUTH_IMAGE || 'convexer-better-auth-sidecar';
+  const targetAppImage = `${baseImage}:${targetVersion}`;
+  const targetSidecarImage = `${sidecarImage}:${targetVersion}`;
+  const candidateName = 'convexer-candidate';
+  const rollbackRef = process.env.CONVEXER_IMAGE_ROLLBACK || 'convexer-convexer:latest';
+
+  try {
+    updateUpdateJob(jobId, { status: 'running', progress: 2, started_at: new Date().toISOString() });
+    await appendJobLog(jobId, 'Running preflight checks', 5);
+
+    await docker.info();
+    const networks = await docker.listNetworks();
+    const hasNetwork = networks.some(n => n.Name === 'convexer-net');
+    if (!hasNetwork) {
+      throw new AppError(500, 'PREFLIGHT_NETWORK_MISSING', 'convexer-net is missing');
+    }
+
+    await appendJobLog(jobId, `Pulling ${targetAppImage}`, 15);
+    await pullImage(targetAppImage);
+    await appendJobLog(jobId, `Pulling ${targetSidecarImage}`, 25);
+    await pullImage(targetSidecarImage);
+
+    const current = await docker.listContainers({
+      all: true,
+      filters: JSON.stringify({ name: ['convexer'] }),
+    });
+    const previousContainerId = current[0]?.Id;
+
+    await appendJobLog(jobId, 'Starting candidate container on port 4001', 40);
+    try {
+      const stale = docker.getContainer(candidateName);
+      await stale.remove({ force: true });
+    } catch {
+      // noop
+    }
+
+    const candidate = await docker.createContainer({
+      Image: targetAppImage,
+      name: candidateName,
+      Env: [
+        `DATA_DIR=${process.env.DATA_DIR || '/app/server/data'}`,
+        `DOMAIN=${process.env.DOMAIN || ''}`,
+        `TUNNEL_DOMAIN=${process.env.TUNNEL_DOMAIN || ''}`,
+        `TUNNEL_CONFIG_PATH=${process.env.TUNNEL_CONFIG_PATH || ''}`,
+        `AUTH_PASSWORD=${process.env.AUTH_PASSWORD || ''}`,
+        `GITHUB_REPO=${process.env.GITHUB_REPO || 'malipetek/convexer'}`,
+        `GITHUB_TOKEN=${process.env.GITHUB_TOKEN || ''}`,
+        `HOST_PROJECT_PATH=${process.env.HOST_PROJECT_PATH || '/home/convexer'}`,
+        `UPDATE_BRANCH=${process.env.UPDATE_BRANCH || 'main'}`,
+        `UPDATE_STRATEGY=${getUpdateStrategy()}`,
+        `CONVEXER_IMAGE=${baseImage}`,
+        `BETTERAUTH_IMAGE=${sidecarImage}`,
+      ],
+      HostConfig: {
+        NetworkMode: 'convexer-net',
+        Binds: [
+          '/var/run/docker.sock:/var/run/docker.sock',
+          'convexer-data:/app/server/data',
+          'convexer-ssh:/root/.ssh',
+          'convexer-backups:/app/server/data/backups',
+          `${process.env.HOST_PROJECT_PATH || '/home/convexer'}/server/data:/app/host-data:ro`,
+        ],
+        PortBindings: {
+          '4000/tcp': [{ HostPort: '4001' }],
+        },
+      },
+      ExposedPorts: { '4000/tcp': {} },
+    });
+    await candidate.start();
+
+    await appendJobLog(jobId, 'Health checking candidate container', 55);
+    const candidateHealthy = await checkHealth('http://127.0.0.1:4001/api/health');
+    if (!candidateHealthy) {
+      throw new AppError(500, 'CANDIDATE_HEALTH_FAILED', 'Candidate container failed health checks');
+    }
+
+    await appendJobLog(jobId, 'Swapping active container', 70);
+    if (previousContainerId) {
+      const previous = docker.getContainer(previousContainerId);
+      try {
+        await previous.stop();
+      } catch {
+        // noop
+      }
+      try {
+        await previous.remove({ force: true });
+      } catch {
+        // noop
+      }
+    }
+
+    await candidate.remove({ force: true });
+    const finalContainer = await docker.createContainer({
+      Image: targetAppImage,
+      name: 'convexer',
+      Env: [
+        `DATA_DIR=${process.env.DATA_DIR || '/app/server/data'}`,
+        `DOMAIN=${process.env.DOMAIN || ''}`,
+        `TUNNEL_DOMAIN=${process.env.TUNNEL_DOMAIN || ''}`,
+        `TUNNEL_CONFIG_PATH=${process.env.TUNNEL_CONFIG_PATH || ''}`,
+        `AUTH_PASSWORD=${process.env.AUTH_PASSWORD || ''}`,
+        `GITHUB_REPO=${process.env.GITHUB_REPO || 'malipetek/convexer'}`,
+        `GITHUB_TOKEN=${process.env.GITHUB_TOKEN || ''}`,
+        `HOST_PROJECT_PATH=${process.env.HOST_PROJECT_PATH || '/home/convexer'}`,
+        `UPDATE_BRANCH=${process.env.UPDATE_BRANCH || 'main'}`,
+        `UPDATE_STRATEGY=${getUpdateStrategy()}`,
+        `CONVEXER_IMAGE=${baseImage}`,
+        `BETTERAUTH_IMAGE=${sidecarImage}`,
+      ],
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        NetworkMode: 'convexer-net',
+        Binds: [
+          '/var/run/docker.sock:/var/run/docker.sock',
+          'convexer-data:/app/server/data',
+          'convexer-ssh:/root/.ssh',
+          'convexer-backups:/app/server/data/backups',
+          `${process.env.HOST_PROJECT_PATH || '/home/convexer'}/server/data:/app/host-data:ro`,
+        ],
+        PortBindings: {
+          '4000/tcp': [{ HostPort: '4000' }],
+        },
+      },
+      ExposedPorts: { '4000/tcp': {} },
+      Labels: {
+        'traefik.enable': 'true',
+        'traefik.http.routers.convexer.rule': `Host(\`${process.env.DOMAIN || ''}\`)`,
+        'traefik.http.routers.convexer.entrypoints': 'web',
+        'traefik.http.services.convexer.loadbalancer.server.port': '4000',
+      },
+    });
+    await finalContainer.start();
+
+    await appendJobLog(jobId, 'Validating final container health', 85);
+    const finalHealthy = await checkHealth('http://127.0.0.1:4000/api/health');
+    if (!finalHealthy) {
+      throw new AppError(500, 'FINAL_HEALTH_FAILED', 'Final container failed health checks');
+    }
+
+    updateUpdateJob(jobId, {
+      status: 'success',
+      progress: 100,
+      completed_at: new Date().toISOString(),
+      health_result: 'ok',
+      rollback_ref: rollbackRef,
+    });
+    audit('update.image', 'success', `Updated to ${targetAppImage}`, jobId);
+  } catch (error) {
+    const appError = asError(error);
+    updateUpdateJob(jobId, {
+      status: 'failed',
+      completed_at: new Date().toISOString(),
+      error_message: appError.message,
+    });
+    appendUpdateJobLog(jobId, `[${new Date().toISOString()}] update failed: ${appError.message}`);
+    audit('update.image', 'failed', appError.message, jobId);
+  }
+}
+
 // Login
 router.post('/login', (req: Request, res: Response) => {
   if (!isAuthEnabled()) {
@@ -265,7 +469,8 @@ router.get('/instances/:id', (req: Request, res: Response) => {
 
 // Create instance
 router.post('/instances', (req: Request, res: Response) => {
-  const { name, extra_env } = req.body;
+  const input = parseOrThrow(createInstanceSchema, req.body);
+  const { name, extra_env } = input;
   const instanceName = name || `instance-${Date.now()}`;
   const id = uuidv4();
   const instanceSecret = crypto.randomBytes(32).toString('hex');
@@ -286,7 +491,7 @@ router.post('/instances', (req: Request, res: Response) => {
 
   const instance = createInstance({
     id,
-    name: req.body.name || `instance-${Date.now()}`,
+    name: name || `instance-${Date.now()}`,
     status: 'creating',
     backend_port: ports.backendPort,
     site_proxy_port: ports.siteProxyPort,
@@ -298,7 +503,7 @@ router.post('/instances', (req: Request, res: Response) => {
     postgres_password: crypto.randomBytes(32).toString('hex'),
     instance_name: instanceName,
     instance_secret: instanceSecret,
-    extra_env: req.body.extra_env ? JSON.stringify(req.body.extra_env) : null,
+    extra_env: toExtraEnvJson(extra_env),
     pinned_version: null,
     detected_version: null,
     health_check_timeout: 300000,
@@ -569,71 +774,81 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) =>
 
 router.put('/instances/:id/health-check-settings', async (req: Request, res: Response) =>
 {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
+  try {
+    const instance = getInstance(req.params.id as string);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
+    }
+
+    const { health_check_timeout, postgres_health_check_timeout } = parseOrThrow(updateHealthCheckSchema, req.body);
+
+    const updated = updateInstance(instance.id, {
+      health_check_timeout: health_check_timeout,
+      postgres_health_check_timeout: postgres_health_check_timeout,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    const appError = asError(error);
+    err(res, appError.status, appError.code, appError.message, appError.details);
   }
-
-  const { health_check_timeout, postgres_health_check_timeout } = req.body;
-
-  const updated = updateInstance(instance.id, {
-    health_check_timeout: health_check_timeout,
-    postgres_health_check_timeout: postgres_health_check_timeout,
-  });
-
-  res.json(updated);
 });
 
 // Update instance settings (extra_env)
 router.put('/instances/:id/settings', async (req: Request, res: Response) =>
 {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-
-  const { extra_env } = req.body;
-
-  // Store new extra_env
-  const updated = updateInstance(instance.id, {
-    extra_env: extra_env ? JSON.stringify(extra_env) : null,
-  });
-
-  if (!updated) {
-    res.status(500).json({ error: 'Failed to update instance' });
-    return;
-  }
-
-  // Stop and remove backend container
   try {
-    const container = await getContainerByRole(instance, 'backend');
-    if (container) {
-      await container.stop();
-      await container.remove();
+    const instance = getInstance(req.params.id as string);
+    if (!instance) {
+      res.status(404).json({ error: 'Instance not found' });
+      return;
     }
-  } catch (err: any) {
-    console.warn('Failed to stop/remove backend:', err.message);
-  }
 
-  // Stop and remove betterauth container so it gets recreated with new env
-  try {
-    await removeBetterAuthSidecar(instance);
-  } catch (err: any) {
-    console.warn('Failed to remove betterauth sidecar:', err.message);
-  }
+    const { extra_env } = parseOrThrow(updateSettingsSchema, req.body);
 
-  // Recreate backend with new env (this also recreates betterauth)
-  try {
-    await createAndStartInstance(updated);
-  } catch (err: any) {
-    console.error('Failed to recreate backend:', err.message);
-    res.status(500).json({ error: err.message });
-    return;
-  }
+    // Store new extra_env
+    const updated = updateInstance(instance.id, {
+      extra_env: toExtraEnvJson(extra_env),
+    });
 
-  res.json(getInstance(instance.id));
+    if (!updated) {
+      res.status(500).json({ error: 'Failed to update instance' });
+      return;
+    }
+
+    // Stop and remove backend container
+    try {
+      const container = await getContainerByRole(instance, 'backend');
+      if (container) {
+        await container.stop();
+        await container.remove();
+      }
+    } catch (err: any) {
+      console.warn('Failed to stop/remove backend:', err.message);
+    }
+
+    // Stop and remove betterauth container so it gets recreated with new env
+    try {
+      await removeBetterAuthSidecar(instance);
+    } catch (err: any) {
+      console.warn('Failed to remove betterauth sidecar:', err.message);
+    }
+
+    // Recreate backend with new env (this also recreates betterauth)
+    try {
+      await createAndStartInstance(updated);
+    } catch (err: any) {
+      console.error('Failed to recreate backend:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    res.json(getInstance(instance.id));
+  } catch (error) {
+    const appError = asError(error);
+    err(res, appError.status, appError.code, appError.message, appError.details);
+  }
 });
 
 router.get('/instances/:id/push/config', (req: Request, res: Response) => {
@@ -1270,8 +1485,43 @@ router.get('/version/check', async (_req: Request, res: Response) =>
 //
 // The updater container runs detached and outlives this container's restart,
 // which is why we return before it finishes.
-router.post('/version/update', async (_req: Request, res: Response) =>
+router.post('/version/update', async (req: Request, res: Response) =>
 {
+  const { targetVersion } = parseOrThrow(updateAppSchema, req.body ?? {});
+  const strategy = getUpdateStrategy();
+
+  if (strategy === 'image') {
+    const selectedVersion = targetVersion || 'latest';
+    const job = createUpdateJob({
+      id: randomUUID(),
+      target_version: selectedVersion,
+      strategy,
+      status: 'pending',
+      progress: 0,
+      logs: '',
+      rollback_ref: process.env.CONVEXER_IMAGE_ROLLBACK || null,
+      started_at: new Date().toISOString(),
+    });
+    audit('update.request', 'accepted', `strategy=image target=${selectedVersion}`, job.id);
+    setTimeout(() => {
+      runImageUpdateJob(job.id, selectedVersion).catch((error: unknown) => {
+        const appError = asError(error);
+        updateUpdateJob(job.id, {
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+          error_message: appError.message,
+        });
+      });
+    }, 50);
+    ok(res, {
+      success: true,
+      jobId: job.id,
+      strategy: 'image',
+      message: 'Image update started',
+    }, 202);
+    return;
+  }
+
   const hostProjectPath = process.env.HOST_PROJECT_PATH;
   console.log(`[update] HOST_PROJECT_PATH: ${hostProjectPath}`);
 
@@ -1555,6 +1805,17 @@ echo "[updater] blue-green deploy complete!"
 // Tail logs of the most recent updater container (for UI progress display).
 router.get('/version/update/logs', async (_req: Request, res: Response) =>
 {
+  if (getUpdateStrategy() === 'image') {
+    const job = getLatestUpdateJob();
+    res.json({
+      running: job?.status === 'pending' || job?.status === 'running',
+      state: job?.status || 'idle',
+      status: job?.status || 'idle',
+      logs: job?.logs || '',
+      jobId: job?.id || null,
+    });
+    return;
+  }
   try {
     const containers = await docker.listContainers({
       all: true,
@@ -1584,6 +1845,26 @@ router.get('/version/update/logs', async (_req: Request, res: Response) =>
 // Check update status (success or failure)
 router.get('/version/update/status', async (_req: Request, res: Response) =>
 {
+  if (getUpdateStrategy() === 'image') {
+    const job = getLatestUpdateJob();
+    if (!job) {
+      ok(res, { running: false, success: null, jobId: null, status: 'idle', progress: 0, rollbackAvailable: false });
+      return;
+    }
+    const running = job.status === 'pending' || job.status === 'running';
+    const success = job.status === 'success' ? true : (job.status === 'failed' ? false : null);
+    ok(res, {
+      running,
+      success,
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      startedAt: job.started_at,
+      completedAt: job.completed_at,
+      rollbackAvailable: Boolean(job.rollback_ref),
+    });
+    return;
+  }
   try {
     const containers = await docker.listContainers({
       all: true,
@@ -1617,6 +1898,11 @@ router.get('/version/update/status', async (_req: Request, res: Response) =>
 // Get saved update logs
 router.get('/version/update/logs/saved', async (_req: Request, res: Response) =>
 {
+  if (getUpdateStrategy() === 'image') {
+    const job = getLatestUpdateJob();
+    ok(res, { logs: job?.logs || '', exists: Boolean(job?.logs), jobId: job?.id || null });
+    return;
+  }
   try {
     const fs = await import('fs');
     const path = await import('path');
@@ -1644,6 +1930,11 @@ router.get('/version/update/logs/saved', async (_req: Request, res: Response) =>
 // Check if rollback is available
 router.get('/version/rollback/status', async (_req: Request, res: Response) =>
 {
+  if (getUpdateStrategy() === 'image') {
+    const job = getLatestUpdateJob();
+    ok(res, { available: Boolean(job?.rollback_ref), commit: job?.rollback_ref || null, jobId: job?.id || null });
+    return;
+  }
   try {
     const fs = await import('fs');
     const path = await import('path');
@@ -1664,6 +1955,42 @@ router.get('/version/rollback/status', async (_req: Request, res: Response) =>
 // Perform rollback to previous version
 router.post('/version/rollback', async (_req: Request, res: Response) =>
 {
+  if (getUpdateStrategy() === 'image') {
+    const { targetJobId } = parseOrThrow(rollbackSchema, _req.body ?? {});
+    const job = targetJobId ? getUpdateJob(targetJobId) : getLatestUpdateJob();
+    if (!job?.rollback_ref) {
+      err(res, 400, 'ROLLBACK_UNAVAILABLE', 'No rollback reference found');
+      return;
+    }
+    const rollbackJob = createUpdateJob({
+      id: randomUUID(),
+      target_version: job.rollback_ref,
+      strategy: 'image',
+      status: 'pending',
+      progress: 0,
+      logs: '',
+      started_at: new Date().toISOString(),
+    });
+    setTimeout(() => {
+      runImageUpdateJob(rollbackJob.id, job.rollback_ref as string).catch((error: unknown) => {
+        const appError = asError(error);
+        updateUpdateJob(rollbackJob.id, {
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+          error_message: appError.message,
+        });
+      });
+    }, 50);
+    audit('update.rollback.request', 'accepted', `rollback_ref=${job.rollback_ref}`, rollbackJob.id);
+    ok(res, {
+      success: true,
+      message: 'Rollback started',
+      updater_container_id: rollbackJob.id,
+      jobId: rollbackJob.id,
+    }, 202);
+    return;
+  }
+
   try {
     const hostProjectPath = process.env.HOST_PROJECT_PATH || '/home/convexer';
     const branch = process.env.UPDATE_BRANCH || 'main';
@@ -1949,15 +2276,12 @@ router.post('/instances/:id/postgres/query', async (req: Request, res: Response)
       res.status(404).json({ error: 'Instance not found' });
       return;
     }
-    const { query } = req.body;
-    if (!query) {
-      res.status(400).json({ error: 'Query is required' });
-      return;
-    }
+    const { query } = parseOrThrow(postgresQuerySchema, req.body);
     const results = await postgres.executeQuery(instance, query);
-    res.json({ results });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    ok(res, { results });
+  } catch (error: any) {
+    const appError = asError(error);
+    err(res, appError.status, appError.code, appError.message, appError.details);
   }
 });
 
@@ -2981,6 +3305,109 @@ router.post('/monitoring/glitchtip/setup', async (req: Request, res: Response) =
     res.json({ success: true, message: `GlitchTip admin account created. Login with email: ${email}` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/admin/preflight', async (_req: Request, res: Response) =>
+{
+  try {
+    const info = await docker.info();
+    const networks = await docker.listNetworks();
+    const volumes = await docker.listVolumes();
+    const updateMode = getUpdateStrategy();
+    const checks = {
+      docker_socket: true,
+      network_exists: networks.some(network => network.Name === 'convexer-net'),
+      data_volume_exists: (volumes.Volumes || []).some(volume => volume.Name === 'convexer-data'),
+      backups_volume_exists: (volumes.Volumes || []).some(volume => volume.Name === 'convexer-backups'),
+      host_project_path_configured: Boolean(process.env.HOST_PROJECT_PATH),
+      update_strategy: updateMode,
+      server_version: info.ServerVersion,
+    };
+    audit('admin.preflight', 'success', JSON.stringify(checks));
+    ok(res, checks);
+  } catch (error) {
+    const appError = asError(error);
+    audit('admin.preflight', 'failed', appError.message);
+    err(res, appError.status, appError.code, appError.message, appError.details);
+  }
+});
+
+router.post('/admin/repair/network', async (_req: Request, res: Response) =>
+{
+  try {
+    try {
+      await docker.createNetwork({ Name: 'convexer-net' });
+    } catch (networkError: any) {
+      if (networkError.statusCode !== 409) {
+        throw networkError;
+      }
+    }
+    audit('admin.repair.network', 'success');
+    ok(res, { success: true, network: 'convexer-net' });
+  } catch (error) {
+    const appError = asError(error);
+    audit('admin.repair.network', 'failed', appError.message);
+    err(res, appError.status, appError.code, appError.message);
+  }
+});
+
+router.post('/admin/repair/restart', async (_req: Request, res: Response) =>
+{
+  try {
+    const target = await docker.getContainer('convexer').inspect();
+    const container = docker.getContainer(target.Id);
+    await container.restart();
+    audit('admin.repair.restart', 'success', 'convexer restarted');
+    ok(res, { success: true, container: 'convexer' });
+  } catch (error) {
+    const appError = asError(error);
+    audit('admin.repair.restart', 'failed', appError.message);
+    err(res, appError.status, appError.code, appError.message);
+  }
+});
+
+router.post('/admin/repair/cleanup', async (req: Request, res: Response) =>
+{
+  try {
+    parseOrThrow(repairCleanupSchema, req.body);
+    const before = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
+    const { stdout, stderr } = await execAsync('docker builder prune -f');
+    const after = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
+    const payload = { success: true, stdout, stderr, before, after };
+    audit('admin.repair.cleanup', 'success', JSON.stringify({ stdout, stderr }));
+    ok(res, payload);
+  } catch (error) {
+    const appError = asError(error);
+    audit('admin.repair.cleanup', 'failed', appError.message);
+    err(res, appError.status, appError.code, appError.message, appError.details);
+  }
+});
+
+router.get('/admin/diagnostics', async (_req: Request, res: Response) =>
+{
+  try {
+    const dockerInfo = await docker.info();
+    const disk = await execAsync('df -h').then(result => result.stdout).catch(() => '');
+    const dockerDisk = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
+    const updateJob = getLatestUpdateJob();
+    const diagnostics = {
+      generated_at: new Date().toISOString(),
+      docker: {
+        server_version: dockerInfo.ServerVersion,
+        containers_running: dockerInfo.ContainersRunning,
+        images: dockerInfo.Images,
+      },
+      disk,
+      docker_disk: dockerDisk,
+      latest_update_job: updateJob || null,
+    };
+    audit('admin.diagnostics', 'success');
+    ok(res, diagnostics);
+  } catch (error) {
+    const appError = asError(error);
+    audit('admin.diagnostics', 'failed', appError.message);
+    err(res, appError.status, appError.code, appError.message, appError.details);
   }
 });
 
