@@ -215,6 +215,15 @@ async function sendApns (
   }
 
   try {
+    console.log('[APNS] Sending push notification:', {
+      teamId,
+      keyId,
+      appId,
+      production: config.production,
+      deviceTokensCount: deviceTokens.length,
+      payload,
+    });
+
     const client = new ApnsClient({
       team: teamId,
       keyId: keyId,
@@ -230,7 +239,9 @@ async function sendApns (
       })
     );
 
+    console.log('[APNS] Sending notifications:', notifications.length);
     const results = await client.sendMany(notifications);
+    console.log('[APNS] Results:', results);
 
     return results.map((result, index) => {
       if ('error' in result) {
