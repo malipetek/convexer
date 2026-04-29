@@ -260,6 +260,35 @@ async function checkHealth(url: string, retries = 45, delayMs = 2000): Promise<b
   return false;
 }
 
+async function checkContainerHealth(container: Docker.Container, retries = 45, delayMs = 2000): Promise<boolean> {
+  for (let i = 0; i < retries; i += 1) {
+    try {
+      const exec = await container.exec({
+        Cmd: [
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+      const stream = await exec.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) =>
+      {
+        stream.on('end', resolve);
+        stream.on('error', reject);
+        stream.resume();
+      });
+      const result = await exec.inspect();
+      if (result.ExitCode === 0) return true;
+    } catch {
+      // noop
+    }
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 async function appendContainerLogs(jobId: string, containerName: string, lineLimit = 120) {
   try {
     const container = docker.getContainer(containerName);
@@ -363,7 +392,7 @@ async function runImageUpdateJob(jobId: string, targetVersion: string) {
     await candidate.start();
 
     await appendJobLog(jobId, 'Health checking candidate container (timeout: ~90s)', 55);
-    const candidateHealthy = await checkHealth('http://127.0.0.1:4001/api/health');
+    const candidateHealthy = await checkContainerHealth(candidate) || await checkHealth('http://127.0.0.1:4001/api/health', 5);
     if (!candidateHealthy) {
       await appendContainerLogs(jobId, candidateName);
       throw new AppError(500, 'CANDIDATE_HEALTH_FAILED', 'Candidate container failed health checks');
