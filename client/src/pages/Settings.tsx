@@ -865,7 +865,10 @@ export default function Settings() {
           // Fetch logs
           const logsData = await fetch('/api/version/update/logs').then(res => res.json()).catch(() => ({ logs: '' }));
           if (logsData.logs && logsData.logs !== '') {
-            setUpdateLogs(prev => [...prev, logsData.logs]);
+            const normalizedLogs = String(logsData.logs)
+              .split('\n')
+              .filter(line => line.trim() !== '');
+            setUpdateLogs(normalizedLogs);
           }
 
           const status = await api.getUpdateStatus();

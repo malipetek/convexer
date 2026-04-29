@@ -221,7 +221,7 @@ function getUpdateStrategy(): UpdateStrategy {
   return (process.env.UPDATE_STRATEGY || 'image') === 'git' ? 'git' : 'image';
 }
 
-async function checkHealth(url: string, retries = 10, delayMs = 2000): Promise<boolean> {
+async function checkHealth(url: string, retries = 45, delayMs = 2000): Promise<boolean> {
   for (let i = 0; i < retries; i += 1) {
     try {
       const response = await fetch(url);
@@ -232,6 +232,19 @@ async function checkHealth(url: string, retries = 10, delayMs = 2000): Promise<b
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
   return false;
+}
+
+async function appendContainerLogs(jobId: string, containerName: string, lineLimit = 120) {
+  try {
+    const container = docker.getContainer(containerName);
+    const logs = await container.logs({ stdout: true, stderr: true, tail: lineLimit });
+    const text = Buffer.isBuffer(logs) ? logs.toString('utf8') : String(logs);
+    if (text.trim()) {
+      appendUpdateJobLog(jobId, `[${new Date().toISOString()}] ${containerName} logs:\n${text}`);
+    }
+  } catch (error: any) {
+    appendUpdateJobLog(jobId, `[${new Date().toISOString()}] unable to read ${containerName} logs: ${error?.message || String(error)}`);
+  }
 }
 
 async function appendJobLog(jobId: string, message: string, progress?: number) {
@@ -323,9 +336,10 @@ async function runImageUpdateJob(jobId: string, targetVersion: string) {
     });
     await candidate.start();
 
-    await appendJobLog(jobId, 'Health checking candidate container', 55);
+    await appendJobLog(jobId, 'Health checking candidate container (timeout: ~90s)', 55);
     const candidateHealthy = await checkHealth('http://127.0.0.1:4001/api/health');
     if (!candidateHealthy) {
+      await appendContainerLogs(jobId, candidateName);
       throw new AppError(500, 'CANDIDATE_HEALTH_FAILED', 'Candidate container failed health checks');
     }
 
@@ -389,6 +403,7 @@ async function runImageUpdateJob(jobId: string, targetVersion: string) {
     await appendJobLog(jobId, 'Validating final container health', 85);
     const finalHealthy = await checkHealth('http://127.0.0.1:4000/api/health');
     if (!finalHealthy) {
+      await appendContainerLogs(jobId, 'convexer');
       throw new AppError(500, 'FINAL_HEALTH_FAILED', 'Final container failed health checks');
     }
 
