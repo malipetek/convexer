@@ -497,7 +497,7 @@ export async function createBetterAuthSidecar (instance: Instance): Promise<void
         }
       },
       Healthcheck: {
-        Test: ['CMD-SHELL', 'curl -f http://localhost:4200/health || exit 1'],
+        Test: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:4200/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'],
         Interval: 10000000000, // 10 seconds
         Timeout: 5000000000, // 5 seconds
         Retries: 3,

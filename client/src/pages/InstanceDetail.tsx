@@ -1893,163 +1893,6 @@ function DestinationSection ({ instanceId }: { instanceId: string })
     return labels[type] || type;
   };
 
-  const DestinationForm = ({ dest, onCancel, onSave }: { dest?: any; onCancel: () => void; onSave: (data: any) => void }) =>
-  {
-    const [formData, setFormData] = useState(() =>
-    {
-      if (dest) {
-        const { id, instance_id, created_at, updated_at, ...rest } = dest;
-        return rest;
-      }
-      return { destination_type: newDestType, enabled: 1 };
-    });
-
-    return (
-      <div className="space-y-4 border-t pt-4">
-        {dest && (
-          <div className="flex items-center justify-between">
-            <Label>Enabled</Label>
-            <Switch
-              checked={formData.enabled === 1}
-              onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked ? 1 : 0 })}
-            />
-          </div>
-        )}
-
-        {formData.destination_type === 'rsync' && (
-          <div className="space-y-2">
-            <Label htmlFor="rsync-target">Rsync Target (user@host:path)</Label>
-            <Input
-              id="rsync-target"
-              placeholder="user@backup-server:/backups"
-              value={formData.rsync_target || ''}
-              onChange={(e) => setFormData({ ...formData, rsync_target: e.target.value })}
-            />
-          </div>
-        )}
-
-        {formData.destination_type === 'koofr' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="koofr-email">Koofr Email</Label>
-              <Input
-                id="koofr-email"
-                type="email"
-                value={formData.koofr_email || ''}
-                onChange={(e) => setFormData({ ...formData, koofr_email: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="koofr-password">Koofr Password</Label>
-              <Input
-                id="koofr-password"
-                type="password"
-                value={formData.koofr_password || ''}
-                onChange={(e) => setFormData({ ...formData, koofr_password: e.target.value })}
-              />
-            </div>
-          </>
-        )}
-
-        {formData.destination_type === 'webdav' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="webdav-url">WebDAV URL</Label>
-              <Input
-                id="webdav-url"
-                placeholder="https://dav.example.com/remote.php/webdav/"
-                value={formData.webdav_url || ''}
-                onChange={(e) => setFormData({ ...formData, webdav_url: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="webdav-user">Username</Label>
-              <Input
-                id="webdav-user"
-                value={formData.webdav_user || ''}
-                onChange={(e) => setFormData({ ...formData, webdav_user: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="webdav-password">Password</Label>
-              <Input
-                id="webdav-password"
-                type="password"
-                value={formData.webdav_password || ''}
-                onChange={(e) => setFormData({ ...formData, webdav_password: e.target.value })}
-              />
-            </div>
-          </>
-        )}
-
-        {formData.destination_type === 's3' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="s3-bucket">S3 Bucket</Label>
-              <Input
-                id="s3-bucket"
-                placeholder="my-backup-bucket"
-                value={formData.s3_bucket || ''}
-                onChange={(e) => setFormData({ ...formData, s3_bucket: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="s3-region">Region</Label>
-              <Input
-                id="s3-region"
-                placeholder="us-east-1"
-                value={formData.s3_region || ''}
-                onChange={(e) => setFormData({ ...formData, s3_region: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="s3-access-key">Access Key</Label>
-              <Input
-                id="s3-access-key"
-                value={formData.s3_access_key || ''}
-                onChange={(e) => setFormData({ ...formData, s3_access_key: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="s3-secret-key">Secret Key</Label>
-              <Input
-                id="s3-secret-key"
-                type="password"
-                value={formData.s3_secret_key || ''}
-                onChange={(e) => setFormData({ ...formData, s3_secret_key: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="s3-endpoint">Endpoint (optional)</Label>
-              <Input
-                id="s3-endpoint"
-                placeholder="https://s3.amazonaws.com"
-                value={formData.s3_endpoint || ''}
-                onChange={(e) => setFormData({ ...formData, s3_endpoint: e.target.value })}
-              />
-            </div>
-          </>
-        )}
-
-        <div className="space-y-2">
-          <Label htmlFor="remote-subfolder">Remote Subfolder (optional)</Label>
-          <Input
-            id="remote-subfolder"
-            placeholder="instance-backups"
-            value={formData.remote_subfolder || ''}
-            onChange={(e) => setFormData({ ...formData, remote_subfolder: e.target.value })}
-          />
-          <p className="text-xs text-muted-foreground">Subfolder within the remote destination for this instance's backups</p>
-        </div>
-
-        <div className="flex gap-2">
-          <Button onClick={() => onSave(formData)}>{dest ? 'Save' : 'Add Destination'}</Button>
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        </div>
-      </div>
-    );
-  };
-
   if (isLoading) return <div className="text-sm text-muted-foreground">Loading destinations...</div>;
 
   return (
@@ -2066,7 +1909,7 @@ function DestinationSection ({ instanceId }: { instanceId: string })
                 <DestinationForm
                   dest={dest}
                   onCancel={() => setEditingDest(null)}
-                  onSave={(data) => updateMutation.mutate({ id: dest.id, data })}
+                  onSave={(data) => updateMutation.mutate({ id: dest.id, data }, { onSuccess: () => setEditingDest(null) })}
                 />
               ) : (
                 <>
@@ -2133,11 +1976,201 @@ function DestinationSection ({ instanceId }: { instanceId: string })
             </Select>
           </div>
           <DestinationForm
+            destinationType={newDestType}
             onCancel={() => setShowAddForm(false)}
             onSave={(data) => createMutation.mutate(data)}
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function DestinationForm ({ dest, destinationType = 'rsync', onCancel, onSave }: { dest?: any; destinationType?: string; onCancel: () => void; onSave: (data: any) => void })
+{
+  const [formData, setFormData] = useState(() =>
+  {
+    if (dest) {
+      const { id, instance_id, created_at, updated_at, ...rest } = dest;
+      return rest;
+    }
+    return { destination_type: destinationType, enabled: 1 };
+  });
+  const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+  const testMutation = useMutation({
+    mutationFn: () => api.backup.testDestination(formData),
+    onSuccess: (result) =>
+    {
+      setTestResult({ status: 'success', message: result.output || 'Connection test passed.' });
+    },
+    onError: (err: any) =>
+    {
+      setTestResult({ status: 'error', message: err.message || 'Connection test failed.' });
+    },
+  });
+
+  const updateForm = (updates: any) =>
+  {
+    setFormData((current: any) => ({ ...current, ...updates }));
+    setTestResult(null);
+  };
+
+  return (
+    <div className="space-y-4 border-t pt-4">
+      {dest && (
+        <div className="flex items-center justify-between">
+          <Label>Enabled</Label>
+          <Switch
+            checked={formData.enabled === 1}
+            onCheckedChange={(checked) => updateForm({ enabled: checked ? 1 : 0 })}
+          />
+        </div>
+      )}
+
+      {formData.destination_type === 'rsync' && (
+        <div className="space-y-2">
+          <Label htmlFor="rsync-target">Rsync Target (user@host:path)</Label>
+          <Input
+            id="rsync-target"
+            placeholder="user@backup-server:/backups"
+            value={formData.rsync_target || ''}
+            onChange={(e) => updateForm({ rsync_target: e.target.value })}
+          />
+        </div>
+      )}
+
+      {formData.destination_type === 'koofr' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="koofr-email">Koofr Email</Label>
+            <Input
+              id="koofr-email"
+              type="email"
+              value={formData.koofr_email || ''}
+              onChange={(e) => updateForm({ koofr_email: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="koofr-password">Koofr Password</Label>
+            <Input
+              id="koofr-password"
+              type="password"
+              value={formData.koofr_password || ''}
+              onChange={(e) => updateForm({ koofr_password: e.target.value })}
+            />
+          </div>
+        </>
+      )}
+
+      {formData.destination_type === 'webdav' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-url">WebDAV URL</Label>
+            <Input
+              id="webdav-url"
+              placeholder="https://dav.example.com/remote.php/webdav/"
+              value={formData.webdav_url || ''}
+              onChange={(e) => updateForm({ webdav_url: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-user">Username</Label>
+            <Input
+              id="webdav-user"
+              value={formData.webdav_user || ''}
+              onChange={(e) => updateForm({ webdav_user: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="webdav-password">Password</Label>
+            <Input
+              id="webdav-password"
+              type="password"
+              value={formData.webdav_password || ''}
+              onChange={(e) => updateForm({ webdav_password: e.target.value })}
+            />
+          </div>
+        </>
+      )}
+
+      {formData.destination_type === 's3' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="s3-bucket">S3 Bucket</Label>
+            <Input
+              id="s3-bucket"
+              placeholder="my-backup-bucket"
+              value={formData.s3_bucket || ''}
+              onChange={(e) => updateForm({ s3_bucket: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="s3-region">Region</Label>
+            <Input
+              id="s3-region"
+              placeholder="us-east-1"
+              value={formData.s3_region || ''}
+              onChange={(e) => updateForm({ s3_region: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="s3-access-key">Access Key</Label>
+            <Input
+              id="s3-access-key"
+              value={formData.s3_access_key || ''}
+              onChange={(e) => updateForm({ s3_access_key: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="s3-secret-key">Secret Key</Label>
+            <Input
+              id="s3-secret-key"
+              type="password"
+              value={formData.s3_secret_key || ''}
+              onChange={(e) => updateForm({ s3_secret_key: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="s3-endpoint">Endpoint (optional)</Label>
+            <Input
+              id="s3-endpoint"
+              placeholder="https://s3.amazonaws.com"
+              value={formData.s3_endpoint || ''}
+              onChange={(e) => updateForm({ s3_endpoint: e.target.value })}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="remote-subfolder">Remote Subfolder (optional)</Label>
+        <Input
+          id="remote-subfolder"
+          placeholder="instance-backups"
+          value={formData.remote_subfolder || ''}
+          onChange={(e) => updateForm({ remote_subfolder: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">Subfolder within the remote destination for this instance's backups</p>
+      </div>
+
+      {testResult && (
+        <div className={`rounded-md border p-3 text-xs ${testResult.status === 'success' ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300'}`}>
+          <div className="flex items-start gap-2">
+            {testResult.status === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+            <pre className="whitespace-pre-wrap break-words font-sans">{testResult.message}</pre>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+          {testMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+          {testMutation.isPending ? 'Testing...' : 'Test Connection'}
+        </Button>
+        <Button onClick={() => onSave(formData)}>{dest ? 'Save' : 'Add Destination'}</Button>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
     </div>
   );
 }

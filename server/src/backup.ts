@@ -366,6 +366,36 @@ export async function webdavBackup (
   }
 }
 
+export async function s3Backup (
+  filePath: string,
+  bucket: string,
+  region: string | null | undefined,
+  accessKey: string,
+  secretKey: string,
+  endpoint?: string | null,
+  subfolder?: string | null,
+): Promise<{ success: boolean; error?: string }>
+{
+  try {
+    const cleanBucket = bucket.replace(/^\/+|\/+$/g, '');
+    const cleanSubfolder = subfolder ? subfolder.replace(/^\/+|\/+$/g, '') : '';
+    const remotePath = cleanSubfolder ? `:s3:${cleanBucket}/${cleanSubfolder}` : `:s3:${cleanBucket}`;
+    const env = {
+      ...process.env,
+      RCLONE_S3_PROVIDER: endpoint ? 'Other' : 'AWS',
+      RCLONE_S3_ACCESS_KEY_ID: accessKey,
+      RCLONE_S3_SECRET_ACCESS_KEY: secretKey,
+      RCLONE_S3_REGION: region || 'us-east-1',
+      ...(endpoint ? { RCLONE_S3_ENDPOINT: endpoint } : {}),
+    };
+
+    await execAsync(`rclone copy "${filePath}" "${remotePath}" --config /dev/null`, { env, maxBuffer: 50 * 1024 * 1024 });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || err.stderr };
+  }
+}
+
 async function uploadToDestination (filePath: string, instanceId: string): Promise<void>
 {
   const destinations = getBackupDestinations(instanceId);
@@ -386,8 +416,8 @@ async function uploadToDestination (filePath: string, instanceId: string): Promi
       const result = await webdavBackup(filePath, dest.webdav_url, dest.webdav_user, dest.webdav_password, subfolder);
       if (!result.success) console.error('WebDAV upload failed:', result.error);
     } else if (destType === 's3' && dest.s3_bucket && dest.s3_access_key && dest.s3_secret_key) {
-      // S3 backup not yet implemented
-      console.error('S3 backup not yet implemented');
+      const result = await s3Backup(filePath, dest.s3_bucket, dest.s3_region, dest.s3_access_key, dest.s3_secret_key, dest.s3_endpoint, subfolder);
+      if (!result.success) console.error('S3 upload failed:', result.error);
     }
   }
 }

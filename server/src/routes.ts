@@ -132,6 +132,32 @@ const router = Router();
 type InstanceContainerRole = 'backend' | 'dashboard' | 'betterauth';
 type UpdateStrategy = 'image' | 'git';
 
+async function probeBetterAuthHealth (container: Docker.Container): Promise<boolean>
+{
+  try {
+    const exec = await container.exec({
+      Cmd: [
+        'node',
+        '-e',
+        "fetch('http://127.0.0.1:4200/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      ],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve, reject) =>
+    {
+      stream.on('end', resolve);
+      stream.on('error', reject);
+      stream.resume();
+    });
+    const result = await exec.inspect();
+    return result.ExitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
 async function getImageId (image: string): Promise<string | null>
 {
   try {
@@ -1167,8 +1193,16 @@ router.get('/instances/:id/container-updates', async (req: Request, res: Respons
 
             // Determine if container is broken (unhealthy or restarting frequently)
             if (healthStatus === 'unhealthy') {
-              broken = true;
-              reason = reason ? `${reason}; unhealthy` : 'Container health check failed';
+              const sidecarResponds = container.role === 'betterauth'
+                ? await probeBetterAuthHealth(containerObj)
+                : false;
+
+              if (sidecarResponds) {
+                healthStatus = 'healthy';
+              } else {
+                broken = true;
+                reason = reason ? `${reason}; unhealthy` : 'Container health check failed';
+              }
             }
             if (restartCount > 5) {
               broken = true;
@@ -2836,11 +2870,11 @@ router.get('/backup/ssh-key', async (_req: Request, res: Response) =>
   }
 });
 
-// Test backup destination connectivity (rsync, koofr, webdav)
+// Test backup destination connectivity (rsync, koofr, webdav, s3)
 router.post('/backup/test-destination', async (req: Request, res: Response) =>
 {
   try {
-    const { destination_type, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, remote_subfolder } = req.body;
+    const { destination_type, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint, remote_subfolder } = req.body;
 
     if (destination_type === 'rsync') {
       if (!rsync_target) {
@@ -2878,6 +2912,32 @@ router.post('/backup/test-destination', async (req: Request, res: Response) =>
       const { stdout, stderr } = await execAsync(
         `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
         { timeout: 20000 }
+      );
+      res.json({ success: true, output: stdout + stderr || 'Connected successfully' });
+      return;
+    }
+
+    if (destination_type === 's3') {
+      if (!s3_bucket || !s3_access_key || !s3_secret_key) {
+        res.status(400).json({ error: 'S3 bucket, access key, and secret key are required' });
+        return;
+      }
+
+      const cleanBucket = String(s3_bucket).replace(/^\/+|\/+$/g, '');
+      const cleanSubfolder = remote_subfolder ? String(remote_subfolder).replace(/^\/+|\/+$/g, '') : '';
+      const remotePath = cleanSubfolder ? `:s3:${cleanBucket}/${cleanSubfolder}` : `:s3:${cleanBucket}`;
+      const env = {
+        ...process.env,
+        RCLONE_S3_PROVIDER: s3_endpoint ? 'Other' : 'AWS',
+        RCLONE_S3_ACCESS_KEY_ID: s3_access_key,
+        RCLONE_S3_SECRET_ACCESS_KEY: s3_secret_key,
+        RCLONE_S3_REGION: s3_region || 'us-east-1',
+        ...(s3_endpoint ? { RCLONE_S3_ENDPOINT: s3_endpoint } : {}),
+      };
+
+      const { stdout, stderr } = await execAsync(
+        `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
+        { timeout: 20000, env }
       );
       res.json({ success: true, output: stdout + stderr || 'Connected successfully' });
       return;
