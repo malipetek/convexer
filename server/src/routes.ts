@@ -594,6 +594,10 @@ async function runImageUpdateJob(jobId: string, targetVersion: string) {
         'traefik.enable': 'true',
         'traefik.http.routers.convexer.rule': `Host(\`${process.env.DOMAIN || ''}\`)`,
         'traefik.http.routers.convexer.entrypoints': 'web',
+        'traefik.http.routers.convexer-secure.rule': `Host(\`${process.env.DOMAIN || ''}\`)`,
+        'traefik.http.routers.convexer-secure.entrypoints': 'websecure',
+        'traefik.http.routers.convexer-secure.tls': 'true',
+        'traefik.http.routers.convexer-secure.service': 'convexer',
         'traefik.http.services.convexer.loadbalancer.server.port': '4000',
       },
     });
@@ -1913,8 +1917,11 @@ docker run -d --name convexer \\
   --restart unless-stopped \\
   --label "traefik.enable=true" \\
   --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-  --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
-  --label "traefik.http.routers.convexer.tls=true" \\
+  --label "traefik.http.routers.convexer.entrypoints=web" \\
+  --label "traefik.http.routers.convexer-secure.rule=Host(\\\`\${DOMAIN}\\\`)" \\
+  --label "traefik.http.routers.convexer-secure.entrypoints=websecure" \\
+  --label "traefik.http.routers.convexer-secure.tls=true" \\
+  --label "traefik.http.routers.convexer-secure.service=convexer" \\
   --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
   convexer-convexer:latest || {
   echo "[updater] FAILED TO START FINAL CONTAINER - rolling back"
@@ -1936,8 +1943,11 @@ docker run -d --name convexer \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-    --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
-    --label "traefik.http.routers.convexer.tls=true" \\
+    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.routers.convexer-secure.rule=Host(\\\`\${DOMAIN}\\\`)" \\
+    --label "traefik.http.routers.convexer-secure.entrypoints=websecure" \\
+    --label "traefik.http.routers.convexer-secure.tls=true" \\
+    --label "traefik.http.routers.convexer-secure.service=convexer" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"
@@ -1982,8 +1992,11 @@ if [ "$HEALTH_OK" = "0" ]; then
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-    --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
-    --label "traefik.http.routers.convexer.tls=true" \\
+    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.routers.convexer-secure.rule=Host(\\\`\${DOMAIN}\\\`)" \\
+    --label "traefik.http.routers.convexer-secure.entrypoints=websecure" \\
+    --label "traefik.http.routers.convexer-secure.tls=true" \\
+    --label "traefik.http.routers.convexer-secure.service=convexer" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"

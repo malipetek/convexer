@@ -95,15 +95,21 @@ export function getBackendTraefikLabels (instance: Instance, domain: string): Re
   };
 
   labels[`traefik.http.routers.backend-${instance.name}.rule`] = `Host(\`${backendDomain}\`)`;
-  labels[`traefik.http.routers.backend-${instance.name}.entrypoints`] = 'web,websecure';
-  labels[`traefik.http.routers.backend-${instance.name}.tls`] = 'true';
+  labels[`traefik.http.routers.backend-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.backend-${instance.name}.service`] = `backend-${instance.name}`;
+  labels[`traefik.http.routers.backend-${instance.name}-secure.rule`] = `Host(\`${backendDomain}\`)`;
+  labels[`traefik.http.routers.backend-${instance.name}-secure.entrypoints`] = 'websecure';
+  labels[`traefik.http.routers.backend-${instance.name}-secure.tls`] = 'true';
+  labels[`traefik.http.routers.backend-${instance.name}-secure.service`] = `backend-${instance.name}`;
   labels[`traefik.http.services.backend-${instance.name}.loadbalancer.server.port`] = '3210';
 
   labels[`traefik.http.routers.site-${instance.name}.rule`] = `Host(\`${siteDomain}\`)`;
-  labels[`traefik.http.routers.site-${instance.name}.entrypoints`] = 'web,websecure';
-  labels[`traefik.http.routers.site-${instance.name}.tls`] = 'true';
+  labels[`traefik.http.routers.site-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.site-${instance.name}.service`] = `site-${instance.name}`;
+  labels[`traefik.http.routers.site-${instance.name}-secure.rule`] = `Host(\`${siteDomain}\`)`;
+  labels[`traefik.http.routers.site-${instance.name}-secure.entrypoints`] = 'websecure';
+  labels[`traefik.http.routers.site-${instance.name}-secure.tls`] = 'true';
+  labels[`traefik.http.routers.site-${instance.name}-secure.service`] = `site-${instance.name}`;
   labels[`traefik.http.services.site-${instance.name}.loadbalancer.server.port`] = '3211';
 
   return labels;
@@ -131,9 +137,12 @@ export function getBetterAuthTraefikLabels (instance: Instance, domain: string):
   };
 
   labels[`traefik.http.routers.betterauth-${instance.name}.rule`] = `Host(\`${betterauthDomain}\`)`;
-  labels[`traefik.http.routers.betterauth-${instance.name}.entrypoints`] = 'web,websecure';
-  labels[`traefik.http.routers.betterauth-${instance.name}.tls`] = 'true';
+  labels[`traefik.http.routers.betterauth-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.betterauth-${instance.name}.service`] = `betterauth-${instance.name}`;
+  labels[`traefik.http.routers.betterauth-${instance.name}-secure.rule`] = `Host(\`${betterauthDomain}\`)`;
+  labels[`traefik.http.routers.betterauth-${instance.name}-secure.entrypoints`] = 'websecure';
+  labels[`traefik.http.routers.betterauth-${instance.name}-secure.tls`] = 'true';
+  labels[`traefik.http.routers.betterauth-${instance.name}-secure.service`] = `betterauth-${instance.name}`;
   labels[`traefik.http.services.betterauth-${instance.name}.loadbalancer.server.port`] = '4200';
 
   return labels;
@@ -162,9 +171,12 @@ export function getDashboardTraefikLabels (instance: Instance, domain: string): 
   };
 
   labels[`traefik.http.routers.dashboard-${instance.name}.rule`] = `Host(\`${dashboardDomain}\`)`;
-  labels[`traefik.http.routers.dashboard-${instance.name}.entrypoints`] = 'web,websecure';
-  labels[`traefik.http.routers.dashboard-${instance.name}.tls`] = 'true';
+  labels[`traefik.http.routers.dashboard-${instance.name}.entrypoints`] = 'web';
   labels[`traefik.http.routers.dashboard-${instance.name}.service`] = `dashboard-${instance.name}`;
+  labels[`traefik.http.routers.dashboard-${instance.name}-secure.rule`] = `Host(\`${dashboardDomain}\`)`;
+  labels[`traefik.http.routers.dashboard-${instance.name}-secure.entrypoints`] = 'websecure';
+  labels[`traefik.http.routers.dashboard-${instance.name}-secure.tls`] = 'true';
+  labels[`traefik.http.routers.dashboard-${instance.name}-secure.service`] = `dashboard-${instance.name}`;
   labels[`traefik.http.services.dashboard-${instance.name}.loadbalancer.server.port`] = '6791';
 
   return labels;
