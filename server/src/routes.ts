@@ -309,6 +309,103 @@ async function appendJobLog(jobId: string, message: string, progress?: number) {
   }
 }
 
+async function testBackupDestination(destination: any): Promise<string> {
+  const {
+    destination_type,
+    rsync_target,
+    koofr_email,
+    koofr_password,
+    webdav_url,
+    webdav_user,
+    webdav_password,
+    s3_bucket,
+    s3_region,
+    s3_access_key,
+    s3_secret_key,
+    s3_endpoint,
+    remote_subfolder,
+  } = destination;
+
+  if (destination_type === 'rsync') {
+    if (!rsync_target) {
+      throw new AppError(400, 'DESTINATION_INVALID', 'rsync_target is required');
+    }
+    const target = remote_subfolder
+      ? `${rsync_target.replace(/\/$/, '')}/${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
+      : rsync_target;
+    const { stdout, stderr } = await execAsync(
+      `rsync -avzn --timeout=10 -e "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" /etc/hostname "${target}/"`,
+      { timeout: 15000 }
+    );
+    return stdout + stderr || 'Connected successfully';
+  }
+
+  if (destination_type === 'koofr' || destination_type === 'webdav') {
+    const url = destination_type === 'koofr' ? 'https://app.koofr.net/dav/Koofr' : webdav_url;
+    const user = destination_type === 'koofr' ? koofr_email : webdav_user;
+    const pass = destination_type === 'koofr' ? koofr_password : webdav_password;
+
+    if (!url || !user || !pass) {
+      throw new AppError(400, 'DESTINATION_INVALID', 'Missing credentials');
+    }
+
+    const { stdout: obscured } = await execAsync(`rclone obscure "${pass.replace(/"/g, '\\"')}"`);
+    const obscuredPass = obscured.trim();
+    const remote = `:webdav,url="${url}",vendor="other",user="${user}",pass="${obscuredPass}":`;
+    const remotePath = remote_subfolder
+      ? `${remote}${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
+      : remote;
+
+    const { stdout, stderr } = await execAsync(
+      `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
+      { timeout: 20000 }
+    );
+    return stdout + stderr || 'Connected successfully';
+  }
+
+  if (destination_type === 's3') {
+    if (!s3_bucket || !s3_access_key || !s3_secret_key) {
+      throw new AppError(400, 'DESTINATION_INVALID', 'S3 bucket, access key, and secret key are required');
+    }
+
+    const cleanBucket = String(s3_bucket).replace(/^\/+|\/+$/g, '');
+    const cleanSubfolder = remote_subfolder ? String(remote_subfolder).replace(/^\/+|\/+$/g, '') : '';
+    const remotePath = cleanSubfolder ? `:s3:${cleanBucket}/${cleanSubfolder}` : `:s3:${cleanBucket}`;
+    const env = {
+      ...process.env,
+      RCLONE_S3_PROVIDER: s3_endpoint ? 'Other' : 'AWS',
+      RCLONE_S3_ACCESS_KEY_ID: s3_access_key,
+      RCLONE_S3_SECRET_ACCESS_KEY: s3_secret_key,
+      RCLONE_S3_REGION: s3_region || 'us-east-1',
+      ...(s3_endpoint ? { RCLONE_S3_ENDPOINT: s3_endpoint } : {}),
+    };
+
+    const { stdout, stderr } = await execAsync(
+      `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
+      { timeout: 20000, env }
+    );
+    return stdout + stderr || 'Connected successfully';
+  }
+
+  throw new AppError(400, 'DESTINATION_INVALID', 'Unknown destination_type');
+}
+
+async function assertEnabledDestinationIsReachable(destination: any): Promise<void> {
+  if (destination.enabled === 0) return;
+
+  try {
+    await testBackupDestination(destination);
+  } catch (error) {
+    const appError = asError(error);
+    throw new AppError(
+      appError.status || 400,
+      'DESTINATION_TEST_FAILED',
+      `Remote destination test failed: ${appError.message}`,
+      appError.details
+    );
+  }
+}
+
 function audit(action: string, status: string, details?: string, target?: string) {
   createActionAuditLog({
     id: randomUUID(),
@@ -2808,6 +2905,7 @@ router.post('/instances/:id/destinations', async (req: Request, res: Response) =
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { randomUUID } = await import('crypto');
+    await assertEnabledDestinationIsReachable(req.body);
     const destination = createBackupDestination({
       id: randomUUID(),
       instance_id: id,
@@ -2816,7 +2914,8 @@ router.post('/instances/:id/destinations', async (req: Request, res: Response) =
     });
     res.json({ destination });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const appError = asError(err);
+    res.status(appError.status || 500).json({ error: appError.message, code: appError.code });
   }
 });
 
@@ -2824,10 +2923,17 @@ router.put('/destinations/:id', async (req: Request, res: Response) =>
 {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const existing = getBackupDestination(id);
+    if (!existing) {
+      res.status(404).json({ error: 'Destination not found' });
+      return;
+    }
+    await assertEnabledDestinationIsReachable({ ...existing, ...req.body });
     const destination = updateBackupDestination(id, req.body);
     res.json({ destination });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const appError = asError(err);
+    res.status(appError.status || 500).json({ error: appError.message, code: appError.code });
   }
 });
 
@@ -2903,78 +3009,11 @@ router.get('/backup/ssh-key', async (_req: Request, res: Response) =>
 router.post('/backup/test-destination', async (req: Request, res: Response) =>
 {
   try {
-    const { destination_type, rsync_target, koofr_email, koofr_password, webdav_url, webdav_user, webdav_password, s3_bucket, s3_region, s3_access_key, s3_secret_key, s3_endpoint, remote_subfolder } = req.body;
-
-    if (destination_type === 'rsync') {
-      if (!rsync_target) {
-        res.status(400).json({ error: 'rsync_target is required' });
-        return;
-      }
-      const target = remote_subfolder
-        ? `${rsync_target.replace(/\/$/, '')}/${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
-        : rsync_target;
-      const { stdout, stderr } = await execAsync(
-        `rsync -avzn --timeout=10 -e "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" /etc/hostname "${target}/"`,
-        { timeout: 15000 }
-      );
-      res.json({ success: true, output: stdout + stderr });
-      return;
-    }
-
-    if (destination_type === 'koofr' || destination_type === 'webdav') {
-      const url = destination_type === 'koofr' ? 'https://app.koofr.net/dav/Koofr' : webdav_url;
-      const user = destination_type === 'koofr' ? koofr_email : webdav_user;
-      const pass = destination_type === 'koofr' ? koofr_password : webdav_password;
-
-      if (!url || !user || !pass) {
-        res.status(400).json({ error: 'Missing credentials' });
-        return;
-      }
-
-      const { stdout: obscured } = await execAsync(`rclone obscure "${pass.replace(/"/g, '\\"')}"`);
-      const obscuredPass = obscured.trim();
-      const remote = `:webdav,url="${url}",vendor="other",user="${user}",pass="${obscuredPass}":`;
-      const remotePath = remote_subfolder
-        ? `${remote}${remote_subfolder.replace(/^\/+|\/+$/g, '')}`
-        : remote;
-
-      const { stdout, stderr } = await execAsync(
-        `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
-        { timeout: 20000 }
-      );
-      res.json({ success: true, output: stdout + stderr || 'Connected successfully' });
-      return;
-    }
-
-    if (destination_type === 's3') {
-      if (!s3_bucket || !s3_access_key || !s3_secret_key) {
-        res.status(400).json({ error: 'S3 bucket, access key, and secret key are required' });
-        return;
-      }
-
-      const cleanBucket = String(s3_bucket).replace(/^\/+|\/+$/g, '');
-      const cleanSubfolder = remote_subfolder ? String(remote_subfolder).replace(/^\/+|\/+$/g, '') : '';
-      const remotePath = cleanSubfolder ? `:s3:${cleanBucket}/${cleanSubfolder}` : `:s3:${cleanBucket}`;
-      const env = {
-        ...process.env,
-        RCLONE_S3_PROVIDER: s3_endpoint ? 'Other' : 'AWS',
-        RCLONE_S3_ACCESS_KEY_ID: s3_access_key,
-        RCLONE_S3_SECRET_ACCESS_KEY: s3_secret_key,
-        RCLONE_S3_REGION: s3_region || 'us-east-1',
-        ...(s3_endpoint ? { RCLONE_S3_ENDPOINT: s3_endpoint } : {}),
-      };
-
-      const { stdout, stderr } = await execAsync(
-        `rclone lsd "${remotePath}" --config /dev/null --contimeout 10s --timeout 15s`,
-        { timeout: 20000, env }
-      );
-      res.json({ success: true, output: stdout + stderr || 'Connected successfully' });
-      return;
-    }
-
-    res.status(400).json({ error: 'Unknown destination_type' });
+    const output = await testBackupDestination(req.body);
+    res.json({ success: true, output });
   } catch (err: any) {
-    res.status(500).json({ error: err.message, stderr: err.stderr });
+    const appError = asError(err);
+    res.status(appError.status || 500).json({ error: appError.message, code: appError.code, stderr: err.stderr });
   }
 });
 

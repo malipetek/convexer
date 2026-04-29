@@ -1870,6 +1870,7 @@ function DestinationSection ({ instanceId }: { instanceId: string })
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => api.backup.updateDestination(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backupDestinations', instanceId] }),
+    onError: (err: any) => alert(err.message || 'Failed to update destination'),
   });
 
   const deleteMutation = useMutation({
@@ -1885,6 +1886,7 @@ function DestinationSection ({ instanceId }: { instanceId: string })
       setShowAddForm(false);
       setNewDestType('rsync');
     },
+    onError: (err: any) => alert(err.message || 'Failed to add destination'),
   });
 
   const destTypeLabel = (type: string) =>
@@ -1997,6 +1999,8 @@ function DestinationForm ({ dest, destinationType = 'rsync', onCancel, onSave }:
     return { destination_type: destinationType, enabled: 1 };
   });
   const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const hasPassedTest = testResult?.status === 'success';
+  const destinationEnabled = formData.enabled !== 0;
 
   const testMutation = useMutation({
     mutationFn: () => api.backup.testDestination(formData),
@@ -2014,6 +2018,18 @@ function DestinationForm ({ dest, destinationType = 'rsync', onCancel, onSave }:
   {
     setFormData((current: any) => ({ ...current, ...updates }));
     setTestResult(null);
+  };
+
+  const handleSave = () =>
+  {
+    if (destinationEnabled && !hasPassedTest) {
+      setTestResult({
+        status: 'error',
+        message: 'Test this destination successfully before saving it as enabled.',
+      });
+      return;
+    }
+    onSave(formData);
   };
 
   return (
@@ -2163,12 +2179,18 @@ function DestinationForm ({ dest, destinationType = 'rsync', onCancel, onSave }:
         </div>
       )}
 
+      {destinationEnabled && !hasPassedTest && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          Enabled remote destinations must pass a connection test before they can be saved.
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
           {testMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
           {testMutation.isPending ? 'Testing...' : 'Test Connection'}
         </Button>
-        <Button onClick={() => onSave(formData)}>{dest ? 'Save' : 'Add Destination'}</Button>
+        <Button onClick={handleSave} disabled={testMutation.isPending || (destinationEnabled && !hasPassedTest)}>{dest ? 'Save' : 'Add Destination'}</Button>
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
