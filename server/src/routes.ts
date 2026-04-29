@@ -42,7 +42,8 @@ import
   getUpdateJob,
   updateUpdateJob,
   appendUpdateJobLog,
-  createActionAuditLog
+  createActionAuditLog,
+  getActionAuditLogs
 } from './db.js';
 import
 {
@@ -3410,5 +3411,21 @@ router.get('/admin/diagnostics', async (_req: Request, res: Response) =>
     err(res, appError.status, appError.code, appError.message, appError.details);
   }
 });
+
+async function handleAuditLogs(req: Request, res: Response)
+{
+  try {
+    const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limit = rawLimit ? Math.min(500, Math.max(1, Number(rawLimit))) : 100;
+    const logs = getActionAuditLogs(Number.isFinite(limit) ? limit : 100);
+    ok(res, { logs });
+  } catch (error) {
+    const appError = asError(error);
+    err(res, appError.status, appError.code, appError.message, appError.details);
+  }
+}
+
+router.get('/admin/audit-logs', handleAuditLogs);
+router.get('/admin/audit', handleAuditLogs);
 
 export default router;

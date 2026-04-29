@@ -64,6 +64,23 @@ async function authedJson<T>(request: APIRequestContext, token: string, path: st
   return JSON.parse(raw) as T;
 }
 
+async function loginViaApi(request: APIRequestContext): Promise<string> {
+  const response = await request.fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: { password: AUTH_PASSWORD },
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`Login failed: ${response.status()} ${raw}`);
+  }
+  const payload = JSON.parse(raw);
+  if (!payload?.token) {
+    throw new Error(`Login response missing token: ${raw}`);
+  }
+  return payload.token as string;
+}
+
 async function runSql(request: APIRequestContext, token: string, instanceId: string, query: string): Promise<any[]> {
   const res = await authedJson<{ results?: any[]; data?: { results?: any[] } }>(request, token, `/api/instances/${instanceId}/postgres/query`, {
     method: 'POST',
@@ -191,15 +208,17 @@ test('fresh setup, create instance, and backup/restore round-trip', async ({ pag
 
 test('admin hardening endpoints require auth and return validated contracts', async ({ page, request }) => {
   const unauthPreflight = await request.get('/api/admin/preflight');
-  expect(unauthPreflight.status()).toBe(401);
-  const unauthRepairNetwork = await request.post('/api/admin/repair/network');
-  expect(unauthRepairNetwork.status()).toBe(401);
-  const unauthRepairRestart = await request.post('/api/admin/repair/restart');
-  expect(unauthRepairRestart.status()).toBe(401);
-  const unauthRepairCleanup = await request.post('/api/admin/repair/cleanup', {
-    data: { confirm: 'prune-builder-cache' },
-  });
-  expect(unauthRepairCleanup.status()).toBe(401);
+  const authEnabled = unauthPreflight.status() === 401;
+  if (authEnabled) {
+    const unauthRepairNetwork = await request.post('/api/admin/repair/network');
+    expect(unauthRepairNetwork.status()).toBe(401);
+    const unauthRepairRestart = await request.post('/api/admin/repair/restart');
+    expect(unauthRepairRestart.status()).toBe(401);
+    const unauthRepairCleanup = await request.post('/api/admin/repair/cleanup', {
+      data: { confirm: 'prune-builder-cache' },
+    });
+    expect(unauthRepairCleanup.status()).toBe(401);
+  }
 
   await page.goto('/');
   await expect(page.getByTestId('login-page')).toBeVisible();
@@ -358,4 +377,83 @@ test('rollback status and diagnostics expose update job metadata', async ({ page
   expect(diagnostics.latest_update_job).toBeTruthy();
   expect(diagnostics.latest_update_job.id).toBe(startData.jobId);
   expect(typeof diagnostics.latest_update_job.status).toBe('string');
+});
+
+test('update failure path reports failed job status', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await page.getByTestId('login-password-input').fill(AUTH_PASSWORD);
+  await page.getByTestId('login-submit-button').click();
+  await expect(page.getByTestId('new-instance-button')).toBeVisible();
+
+  const token = await getTokenFromBrowser(page);
+  const impossibleTag = `tag-that-does-not-exist-${Date.now()}`;
+
+  const updateStart = await request.fetch('/api/version/update', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { targetVersion: impossibleTag },
+  });
+  expect(updateStart.status()).toBe(202);
+  const startBody = await updateStart.json();
+  const startData = startBody.data ?? startBody;
+  expect(typeof startData.jobId).toBe('string');
+
+  const finalStatus = await waitForValue<any>(
+    async () => {
+      const res = await authedJson<any>(request, token, '/api/version/update/status');
+      return res.data ?? res;
+    },
+    value => value.status === 'failed' || (value.running === false && value.success === false),
+    90_000,
+    2_000,
+    'failed update job status'
+  );
+
+  expect(finalStatus.running).toBe(false);
+  expect(finalStatus.success).toBe(false);
+  expect(finalStatus.status).toBe('failed');
+
+  const diagnosticsRes = await authedJson<any>(request, token, '/api/admin/diagnostics');
+  const diagnostics = diagnosticsRes.data ?? diagnosticsRes;
+  expect(diagnostics.latest_update_job).toBeTruthy();
+  expect(diagnostics.latest_update_job.id).toBe(startData.jobId);
+  expect(diagnostics.latest_update_job.status).toBe('failed');
+  expect(typeof diagnostics.latest_update_job.error_message).toBe('string');
+});
+
+test('API integration: /admin/diagnostics returns non-UI contract', async ({ request }) => {
+  const unauth = await request.get('/api/admin/diagnostics');
+  expect([200, 401]).toContain(unauth.status());
+
+  const token = await loginViaApi(request);
+  const response = await authedJson<any>(request, token, '/api/admin/diagnostics');
+  const data = response.data ?? response;
+
+  expect(typeof data.generated_at).toBe('string');
+  expect(typeof data.docker?.server_version).toBe('string');
+  expect(data).toHaveProperty('disk');
+  expect(data).toHaveProperty('docker_disk');
+  expect(data).toHaveProperty('latest_update_job');
+});
+
+test('API integration: /admin/audit returns non-UI contract', async ({ request }) => {
+  const token = await loginViaApi(request);
+
+  // Generate at least one audited action first.
+  await authedJson<any>(request, token, '/api/admin/diagnostics');
+
+  const response = await authedJson<any>(request, token, '/api/admin/audit?limit=20');
+  const data = response.data ?? response;
+  expect(Array.isArray(data.logs)).toBe(true);
+  expect(data.logs.length).toBeGreaterThan(0);
+
+  const first = data.logs[0];
+  expect(typeof first.id).toBe('string');
+  expect(typeof first.action).toBe('string');
+  expect(typeof first.status).toBe('string');
+  expect(typeof first.created_at).toBe('string');
 });

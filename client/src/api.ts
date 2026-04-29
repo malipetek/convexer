@@ -233,6 +233,7 @@ export const api = {
       body: JSON.stringify({ confirm: 'prune-builder-cache' }),
     }),
     diagnostics: () => request<any>('/admin/diagnostics'),
+    auditLogs: (limit = 100) => request<{ logs: Array<{ id: string; action: string; status: string; details?: string | null; created_at: string }> }>(`/admin/audit?limit=${limit}`),
   },
   postgres: {
     listTables: (id: string) => request<{ tables: string[] }>(`/instances/${id}/postgres/tables`),

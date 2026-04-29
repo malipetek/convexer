@@ -1016,3 +1016,8 @@ export function createActionAuditLog (log: {
   });
   return db.prepare('SELECT * FROM action_audit_logs WHERE id = ?').get(log.id) as ActionAuditLog;
 }
+
+export function getActionAuditLogs (limit = 100): ActionAuditLog[]
+{
+  return db.prepare('SELECT * FROM action_audit_logs ORDER BY created_at DESC, rowid DESC LIMIT ?').all(limit) as ActionAuditLog[];
+}
