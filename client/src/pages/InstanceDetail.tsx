@@ -260,8 +260,6 @@ export default function InstanceDetail() {
 
           <TabsContent value="overview">
             <div className="space-y-6">
-              <ContainerUpdates instanceId={instance.id} />
-
               <Card>
                 <CardHeader>
                   <CardTitle>Actions</CardTitle>
@@ -2199,7 +2197,9 @@ function DestinationForm ({ dest, destinationType = 'rsync', onCancel, onSave }:
 
 function ContainersTab ({ instanceId }: { instanceId: string })
 {
+  const queryClient = useQueryClient();
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [showEnvValues, setShowEnvValues] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
 
   const { data, isLoading, refetch } = useQuery({
@@ -2213,6 +2213,27 @@ function ContainersTab ({ instanceId }: { instanceId: string })
     queryFn: () => api.getLogs(instanceId, selectedRole as any, 300),
     enabled: !!selectedRole,
     refetchInterval: 5_000,
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (role: 'backend' | 'dashboard' | 'postgres' | 'betterauth') => api.restartContainer(instanceId, role),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['containers', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['container-updates', instanceId] });
+    },
+    onError: (err: any) => alert(`Failed to restart container: ${err.message}`),
+  });
+
+  const recreateMutation = useMutation({
+    mutationFn: (role: 'backend' | 'dashboard' | 'postgres' | 'betterauth') => api.recreateContainer(instanceId, role),
+    onSuccess: () =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['containers', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['container-updates', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['container-logs', instanceId] });
+    },
+    onError: (err: any) => alert(`Failed to recreate container: ${err.message}`),
   });
 
   useEffect(() =>
@@ -2235,6 +2256,15 @@ function ContainersTab ({ instanceId }: { instanceId: string })
   };
 
   const containers = data?.containers ?? [];
+  const selectedContainer = containers.find(c => c.role === selectedRole);
+  const busyRole = restartMutation.variables || recreateMutation.variables;
+
+  const isSensitiveEnv = (key: string) => /SECRET|PASSWORD|TOKEN|KEY|PRIVATE|CREDENTIAL|DATABASE_URL/i.test(key);
+  const formatEnvValue = (key: string, value: string) =>
+  {
+    if (showEnvValues || !isSensitiveEnv(key)) return value;
+    return value ? '********' : '';
+  };
 
   return (
     <div className="space-y-4">
@@ -2285,11 +2315,75 @@ function ContainersTab ({ instanceId }: { instanceId: string })
                       <div className="font-mono">:{c.ports.map(p => p.hostPort).join(', :')}</div>
                     )}
                   </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      disabled={c.status === 'not found' || busyRole === c.role}
+                      onClick={(event) =>
+                      {
+                        event.stopPropagation();
+                        restartMutation.mutate(c.role as 'backend' | 'dashboard' | 'postgres' | 'betterauth');
+                      }}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1 ${restartMutation.isPending && busyRole === c.role ? 'animate-spin' : ''}`} />
+                      Restart
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-8"
+                      disabled={busyRole === c.role}
+                      onClick={(event) =>
+                      {
+                        event.stopPropagation();
+                        const warning = c.role === 'postgres'
+                          ? 'Recreate Postgres container? The database volume is preserved, but dependent containers will be recreated too.'
+                          : `Recreate ${roleLabel[c.role] ?? c.role} container? This refreshes image, environment, and Traefik labels.`;
+                        if (confirm(warning)) {
+                          recreateMutation.mutate(c.role as 'backend' | 'dashboard' | 'postgres' | 'betterauth');
+                        }
+                      }}
+                    >
+                      <PackageOpen className="h-3.5 w-3.5 mr-1" />
+                      Recreate
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
+      )}
+
+      {selectedRole && selectedContainer && (
+        <Card>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm">{roleLabel[selectedRole] ?? selectedRole} Environment</CardTitle>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => setShowEnvValues(prev => !prev)}>
+              {showEnvValues ? 'Hide Values' : 'Reveal Values'}
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {selectedContainer.env.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No environment variables reported by Docker.</p>
+            ) : (
+              <div className="overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {selectedContainer.env.map(({ key, value }) => (
+                      <tr key={key} className="border-b last:border-b-0">
+                        <td className="w-64 align-top bg-muted/50 px-3 py-2 font-mono font-medium">{key}</td>
+                        <td className="px-3 py-2 font-mono break-all">{formatEnvValue(key, value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {selectedRole && (

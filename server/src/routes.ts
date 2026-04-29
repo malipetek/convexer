@@ -88,7 +88,7 @@ import
 import { isAuthEnabled, createSession } from './auth.js';
 import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames, getTunnelDomain, removeTunnelRoutes } from './tunnel.js';
 import { randomUUID } from 'crypto';
-import { getTraefikStatus } from './traefik.js';
+import { getBackendTraefikLabels, getBetterAuthTraefikLabels, getDashboardTraefikLabels, getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
 import { readFileSync, promises as fsPromises } from 'fs';
 import { fileURLToPath } from 'url';
@@ -130,7 +130,54 @@ const CURRENT_VERSION = readCurrentVersion();
 const router = Router();
 
 type InstanceContainerRole = 'backend' | 'dashboard' | 'betterauth';
+type RuntimeContainerRole = InstanceContainerRole | 'postgres';
 type UpdateStrategy = 'image' | 'git';
+
+function getExpectedTraefikLabels (instance: Instance, role: InstanceContainerRole): Record<string, string>
+{
+  const domain = process.env.DOMAIN || '';
+  if (role === 'backend') return getBackendTraefikLabels(instance, domain);
+  if (role === 'dashboard') return getDashboardTraefikLabels(instance, domain);
+  return getBetterAuthTraefikLabels(instance, domain);
+}
+
+function getTraefikLabelDrift (actual: Record<string, string> | undefined, expected: Record<string, string>): string[]
+{
+  const labels = actual || {};
+  return Object.entries(expected)
+    .filter(([key, value]) => labels[key] !== value)
+    .map(([key]) => key);
+}
+
+async function removeContainerByRole (instance: Instance, role: RuntimeContainerRole): Promise<void>
+{
+  const container = await getContainerByRole(instance, role);
+  if (!container) return;
+  try { await container.stop(); } catch { /* already stopped */ }
+  await container.remove({ force: true });
+}
+
+async function recreateContainerRole (instance: Instance, role: RuntimeContainerRole): Promise<void>
+{
+  if (role === 'betterauth') {
+    await removeBetterAuthSidecar(instance);
+    await createBetterAuthSidecar(instance);
+    return;
+  }
+
+  if (role === 'postgres') {
+    // Recreate dependents too so connections, labels, and env are refreshed against the same volumes.
+    await removeBetterAuthSidecar(instance);
+    await removeContainerByRole(instance, 'dashboard');
+    await removeContainerByRole(instance, 'backend');
+    await removeContainerByRole(instance, 'postgres');
+    await createAndStartInstance(instance);
+    return;
+  }
+
+  await removeContainerByRole(instance, role);
+  await createAndStartInstance(instance);
+}
 
 async function probeBetterAuthHealth (container: Docker.Container): Promise<boolean>
 {
@@ -940,6 +987,28 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) =>
   }
 });
 
+router.post('/instances/:id/containers/:role/recreate', async (req: Request, res: Response) =>
+{
+  const instance = getInstance(req.params.id as string);
+  if (!instance) {
+    res.status(404).json({ error: 'Instance not found' });
+    return;
+  }
+
+  const role = req.params.role as RuntimeContainerRole;
+  if (!['backend', 'dashboard', 'postgres', 'betterauth'].includes(role)) {
+    res.status(400).json({ error: `Invalid container role: ${role}` });
+    return;
+  }
+
+  try {
+    await recreateContainerRole(instance, role);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/instances/:id/health-check-settings', async (req: Request, res: Response) =>
 {
   try {
@@ -1315,6 +1384,14 @@ router.get('/instances/:id/container-updates', async (req: Request, res: Respons
             if (container.update_available) {
               stale = true;
               reason = `Image ${container.current_image_id} differs from target ${container.target_image_id}`;
+            }
+
+            const expectedLabels = getExpectedTraefikLabels(instance, container.role);
+            const missingOrStaleLabels = getTraefikLabelDrift(info.Config.Labels, expectedLabels);
+            if (missingOrStaleLabels.length > 0) {
+              stale = true;
+              const labelReason = `Traefik labels need refresh (${missingOrStaleLabels.join(', ')})`;
+              reason = reason ? `${reason}; ${labelReason}` : labelReason;
             }
 
             // Determine if container is broken (unhealthy or restarting frequently)
@@ -1836,7 +1913,8 @@ docker run -d --name convexer \\
   --restart unless-stopped \\
   --label "traefik.enable=true" \\
   --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-  --label "traefik.http.routers.convexer.entrypoints=web" \\
+  --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
+  --label "traefik.http.routers.convexer.tls=true" \\
   --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
   convexer-convexer:latest || {
   echo "[updater] FAILED TO START FINAL CONTAINER - rolling back"
@@ -1858,7 +1936,8 @@ docker run -d --name convexer \\
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
+    --label "traefik.http.routers.convexer.tls=true" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"
@@ -1903,7 +1982,8 @@ if [ "$HEALTH_OK" = "0" ]; then
     --restart unless-stopped \\
     --label "traefik.enable=true" \\
     --label "traefik.http.routers.convexer.rule=Host(\\\`\${DOMAIN}\\\`)" \\
-    --label "traefik.http.routers.convexer.entrypoints=web" \\
+    --label "traefik.http.routers.convexer.entrypoints=web,websecure" \\
+    --label "traefik.http.routers.convexer.tls=true" \\
     --label "traefik.http.services.convexer.loadbalancer.server.port=4000" \\
     convexer-convexer:pending
   echo "[updater] rolling back git to previous commit"
@@ -3034,7 +3114,7 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
         // Use getContainerByRole which looks up by name first and auto-syncs DB
         const c = await getContainerByRole(instance, role);
         if (!c) {
-          return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
+          return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [], env: [] };
         }
         const info = await c.inspect();
         const portBindings = info.HostConfig?.PortBindings || {};
@@ -3042,6 +3122,15 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
           containerPort,
           hostPort: bindings?.[0]?.HostPort,
         }));
+        const env = (info.Config.Env || []).map((entry: string) =>
+        {
+          const separator = entry.indexOf('=');
+          if (separator === -1) return { key: entry, value: '' };
+          return {
+            key: entry.slice(0, separator),
+            value: entry.slice(separator + 1),
+          };
+        }).sort((a, b) => a.key.localeCompare(b.key));
         return {
           role,
           name: info.Name.replace(/^\//, ''),
@@ -3051,9 +3140,10 @@ router.get('/instances/:id/containers', async (req: Request, res: Response) =>
           startedAt: info.State.StartedAt,
           restartCount: info.RestartCount,
           ports,
+          env,
         };
       } catch {
-        return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [] };
+        return { role, name: containerName, image: null, status: 'not found', running: false, startedAt: null, restartCount: 0, ports: [], env: [] };
       }
     }));
 

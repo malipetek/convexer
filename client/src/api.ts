@@ -89,12 +89,17 @@ export const api = {
     request<{ success: boolean }>(`/instances/${id}/restart?container=${container}`, {
       method: 'POST',
     }),
+  recreateContainer: (id: string, container: 'backend' | 'dashboard' | 'postgres' | 'betterauth') =>
+    request<{ success: boolean }>(`/instances/${id}/containers/${container}/recreate`, {
+      method: 'POST',
+    }),
   getContainers: (id: string) =>
     request<{
       containers: Array<{
         role: string; name: string; image: string | null;
         status: string; running: boolean; startedAt: string | null;
         restartCount: number; ports: Array<{ containerPort: string; hostPort: string }>;
+        env: Array<{ key: string; value: string }>;
       }>
     }>(`/instances/${id}/containers`),
   updateSettings: (id: string, extra_env: Record<string, string>) =>

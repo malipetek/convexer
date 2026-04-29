@@ -58,7 +58,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.convexer.rule=Host(`${DOMAIN}`)
-      - traefik.http.routers.convexer.entrypoints=web
+      - traefik.http.routers.convexer.entrypoints=web,websecure
+      - traefik.http.routers.convexer.tls=true
       - traefik.http.services.convexer.loadbalancer.server.port=4000
     networks:
       - convexer-net
@@ -89,7 +90,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.umami.rule=Host(`umami.${DOMAIN}`)
-      - traefik.http.routers.umami.entrypoints=web
+      - traefik.http.routers.umami.entrypoints=web,websecure
+      - traefik.http.routers.umami.tls=true
       - traefik.http.services.umami.loadbalancer.server.port=3000
     networks:
       - convexer-net
@@ -133,7 +135,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.glitchtip.rule=Host(`glitchtip.${DOMAIN}`)
-      - traefik.http.routers.glitchtip.entrypoints=web
+      - traefik.http.routers.glitchtip.entrypoints=web,websecure
+      - traefik.http.routers.glitchtip.tls=true
       - traefik.http.services.glitchtip.loadbalancer.server.port=8000
     networks:
       - convexer-net
