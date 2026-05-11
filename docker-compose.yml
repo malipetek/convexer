@@ -53,6 +53,7 @@ services:
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-/home/convexer}
       - UPDATE_BRANCH=${UPDATE_BRANCH:-main}
       - UPDATE_STRATEGY=${UPDATE_STRATEGY:-image}
+      - ALLOW_GIT_UPDATE=${ALLOW_GIT_UPDATE:-0}
       - CONVEXER_IMAGE=${CONVEXER_IMAGE:-convexer-convexer}
       - BETTERAUTH_IMAGE=${BETTERAUTH_IMAGE:-convexer-better-auth-sidecar}
     labels:

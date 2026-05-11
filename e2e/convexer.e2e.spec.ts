@@ -81,6 +81,19 @@ async function loginViaApi(request: APIRequestContext): Promise<string> {
   return payload.token as string;
 }
 
+async function waitForUpdateIdle(request: APIRequestContext, token: string): Promise<void> {
+  await waitForValue<any>(
+    async () => {
+      const res = await authedJson<any>(request, token, '/api/version/update/status');
+      return res.data ?? res;
+    },
+    value => value.running === false,
+    120_000,
+    1_000,
+    'update job to become idle'
+  );
+}
+
 async function runSql(request: APIRequestContext, token: string, instanceId: string, query: string): Promise<any[]> {
   const res = await authedJson<{ results?: any[]; data?: { results?: any[] } }>(request, token, `/api/instances/${instanceId}/postgres/query`, {
     method: 'POST',
@@ -333,6 +346,16 @@ test('update status endpoints expose job-compatible contract', async ({ page, re
   expect(startData.success).toBe(true);
   expect(typeof startData.jobId).toBe('string');
 
+  const concurrentUpdate = await request.fetch('/api/version/update', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: { targetVersion: 'latest' },
+  });
+  expect(concurrentUpdate.status()).toBe(409);
+
   const statusResponse = await authedJson<any>(request, token, '/api/version/update/status');
   const status = statusResponse.data ?? statusResponse;
   expect(typeof status.running).toBe('boolean');
@@ -342,6 +365,7 @@ test('update status endpoints expose job-compatible contract', async ({ page, re
 
   const logsResponse = await authedJson<any>(request, token, '/api/version/update/logs');
   expect(typeof logsResponse.logs).toBe('string');
+  await waitForUpdateIdle(request, token);
 });
 
 test('rollback status and diagnostics expose update job metadata', async ({ page, request }) => {
@@ -352,6 +376,7 @@ test('rollback status and diagnostics expose update job metadata', async ({ page
   await expect(page.getByTestId('new-instance-button')).toBeVisible();
 
   const token = await getTokenFromBrowser(page);
+  await waitForUpdateIdle(request, token);
 
   const updateStart = await request.fetch('/api/version/update', {
     method: 'POST',
@@ -387,6 +412,7 @@ test('update failure path reports failed job status', async ({ page, request }) 
   await expect(page.getByTestId('new-instance-button')).toBeVisible();
 
   const token = await getTokenFromBrowser(page);
+  await waitForUpdateIdle(request, token);
   const impossibleTag = `tag-that-does-not-exist-${Date.now()}`;
 
   const updateStart = await request.fetch('/api/version/update', {

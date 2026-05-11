@@ -104,6 +104,17 @@ export async function ensureImages (): Promise<void>
   }
 }
 
+async function startContainer (container: Docker.Container, label: string): Promise<void>
+{
+  try {
+    await container.start();
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    if (err?.statusCode === 304 || /already (started|running)|not modified/i.test(message)) return;
+    throw new Error(`Failed to start ${label}: ${message}`);
+  }
+}
+
 export async function createAndStartInstance (instance: Instance, beforeBackendStart?: () => Promise<void>): Promise<void>
 {
   try {
@@ -151,7 +162,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start postgres (idempotent - ignores if already running)
-    await postgresContainer.start().catch(() => { });
+    await startContainer(postgresContainer, `PostgreSQL container for ${instance.name}`);
 
     updateInstance(instance.id, { postgres_container_id: postgresContainer.id });
 
@@ -240,7 +251,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start backend (idempotent - ignores if already running)
-    await backendContainer.start().catch(() => { });
+    await startContainer(backendContainer, `backend container for ${instance.name}`);
 
     updateInstance(instance.id, { backend_container_id: backendContainer.id });
 
@@ -299,7 +310,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start dashboard (idempotent - ignores if already running)
-    await dashboardContainer.start().catch(() => { });
+    await startContainer(dashboardContainer, `dashboard container for ${instance.name}`);
 
     updateInstance(instance.id, {
       dashboard_container_id: dashboardContainer.id,
@@ -586,11 +597,11 @@ export async function startInstance(instance: Instance): Promise<void> {
   }
 
   // All containers exist, start them
-  await postgresContainer.start().catch(() => { });
+  await startContainer(postgresContainer, `PostgreSQL container for ${instance.name}`);
   await waitForPostgres(instance.name, 60_000);
 
-  await backendContainer.start().catch(() => { });
-  await dashboardContainer.start().catch(() => { });
+  await startContainer(backendContainer, `backend container for ${instance.name}`);
+  await startContainer(dashboardContainer, `dashboard container for ${instance.name}`);
 
   // Start or create Better Auth sidecar
   const betterauthContainer = await getContainerByRole(instance, 'betterauth');

@@ -42,6 +42,9 @@ import
   getUpdateJob,
   updateUpdateJob,
   appendUpdateJobLog,
+  createOperation,
+  updateOperation,
+  getRecentOperations,
   createActionAuditLog,
   getActionAuditLogs
 } from './db.js';
@@ -97,6 +100,8 @@ import path from 'path';
 import { sendPush, supportedPushProviders, PushProvider } from './push.js';
 import { AppError, asError, err, ok } from './http.js';
 import { createInstanceSchema, parseOrThrow, postgresQuerySchema, repairCleanupSchema, rollbackSchema, toExtraEnvJson, updateAppSchema, updateHealthCheckSchema, updateSettingsSchema } from './validation.js';
+import { formatSseEvent, getRecentEvents, subscribeEvents } from './events.js';
+import { runAppEffect, tryPromiseApp, withTransientRetry } from './effectRuntime.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -291,7 +296,13 @@ async function getInstanceImageStatus (
 }
 
 function getUpdateStrategy(): UpdateStrategy {
-  return (process.env.UPDATE_STRATEGY || 'image') === 'git' ? 'git' : 'image';
+  const allowGitUpdate = process.env.ALLOW_GIT_UPDATE === '1';
+  return allowGitUpdate && (process.env.UPDATE_STRATEGY || 'image') === 'git' ? 'git' : 'image';
+}
+
+function isUpdateJobActive (job: { status: string } | undefined): boolean
+{
+  return job?.status === 'pending' || job?.status === 'running';
 }
 
 async function checkHealth(url: string, retries = 45, delayMs = 2000): Promise<boolean> {
@@ -460,6 +471,16 @@ function audit(action: string, status: string, details?: string, target?: string
     status,
     details: details ?? null,
     target: target ?? null,
+  });
+}
+
+function finishOperation (operationId: string, status: 'success' | 'failed', message: string, errorMessage?: string)
+{
+  updateOperation(operationId, {
+    status,
+    message,
+    error_message: errorMessage ?? null,
+    completed_at: new Date().toISOString(),
   });
 }
 
@@ -670,6 +691,47 @@ router.get('/health', async (_req: Request, res: Response) =>
   });
 });
 
+router.get('/events', (req: Request, res: Response) =>
+{
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const writeEvent = (event: Parameters<typeof formatSseEvent>[0]) =>
+  {
+    res.write(formatSseEvent(event));
+  };
+
+  writeEvent({
+    id: `connected-${Date.now()}`,
+    type: 'connected',
+    createdAt: new Date().toISOString(),
+    data: { recentEvents: getRecentEvents().length },
+  });
+
+  for (const event of getRecentEvents()) {
+    writeEvent(event);
+  }
+
+  const unsubscribe = subscribeEvents(writeEvent);
+  const heartbeat = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, 25_000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
+router.get('/operations', (req: Request, res: Response) =>
+{
+  const rawLimit = Number.parseInt(String(req.query.limit || '50'), 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+  ok(res, { operations: getRecentOperations(limit) });
+});
+
 // List all instances
 router.get('/instances', (_req: Request, res: Response) => {
   const instances = getAllInstances().map(withTunnel);
@@ -697,7 +759,7 @@ router.post('/instances', (req: Request, res: Response) => {
 
   // Auto-generate subdomains if not provided
   const domain = process.env.DOMAIN || '';
-  const finalExtraEnv = extra_env || {};
+  const finalExtraEnv = { ...(extra_env || {}) };
   if (!finalExtraEnv.BACKEND_DOMAIN) {
     finalExtraEnv.BACKEND_DOMAIN = domain ? `${instanceName}.${domain}` : instanceName;
   }
@@ -722,16 +784,35 @@ router.post('/instances', (req: Request, res: Response) => {
     postgres_password: crypto.randomBytes(32).toString('hex'),
     instance_name: instanceName,
     instance_secret: instanceSecret,
-    extra_env: toExtraEnvJson(extra_env),
+    extra_env: toExtraEnvJson(finalExtraEnv),
     pinned_version: null,
     detected_version: null,
     health_check_timeout: 300000,
     postgres_health_check_timeout: 60000,
   });
 
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.create',
+    target_type: 'instance',
+    target_id: instance.id,
+    status: 'running',
+    message: `Creating instance ${instance.name}`,
+    started_at: new Date().toISOString(),
+  });
+
   // Start creation in background
-  createAndStartInstance(instance).catch(err => {
+  createAndStartInstance(instance).then(() => {
+    const current = getInstance(instance.id);
+    if (current?.status === 'running') {
+      finishOperation(operation.id, 'success', `Instance ${instance.name} is running`);
+    } else {
+      finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, current?.error_message || 'Unknown creation failure');
+    }
+  }).catch(err => {
     console.error(`Background creation failed for ${instanceName}:`, err);
+    updateInstance(instance.id, { status: 'error', error_message: err.message });
+    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, err.message);
   });
 
   res.status(201).json(instance);
@@ -744,10 +825,24 @@ router.post('/instances/:id/start', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Instance not found' });
     return;
   }
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.start',
+    target_type: 'instance',
+    target_id: instance.id,
+    status: 'running',
+    message: `Starting instance ${instance.name}`,
+    started_at: new Date().toISOString(),
+  });
   try {
-    await startInstance(instance);
+    await runAppEffect(withTransientRetry(tryPromiseApp({
+      try: () => startInstance(instance),
+      code: 'INSTANCE_START_FAILED',
+    })));
+    finishOperation(operation.id, 'success', `Instance ${instance.name} started`);
     res.json(getInstance(instance.id));
   } catch (err: any) {
+    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -759,10 +854,24 @@ router.post('/instances/:id/stop', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Instance not found' });
     return;
   }
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.stop',
+    target_type: 'instance',
+    target_id: instance.id,
+    status: 'running',
+    message: `Stopping instance ${instance.name}`,
+    started_at: new Date().toISOString(),
+  });
   try {
-    await stopInstance(instance);
+    await runAppEffect(withTransientRetry(tryPromiseApp({
+      try: () => stopInstance(instance),
+      code: 'INSTANCE_STOP_FAILED',
+    })));
+    finishOperation(operation.id, 'success', `Instance ${instance.name} stopped`);
     res.json(getInstance(instance.id));
   } catch (err: any) {
+    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to stop`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -774,7 +883,17 @@ router.post('/instances/:id/forget', (req: Request, res: Response) => {
     res.status(404).json({ error: 'Instance not found' });
     return;
   }
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.forget',
+    target_type: 'instance',
+    target_id: instance.id,
+    status: 'running',
+    message: `Forgetting instance ${instance.name}`,
+    started_at: new Date().toISOString(),
+  });
   deleteInstance(instance.id);
+  finishOperation(operation.id, 'success', `Instance ${instance.name} forgotten`);
   res.status(204).send();
 });
 
@@ -788,6 +907,15 @@ router.delete('/instances/:id', async (req: Request, res: Response) => {
 
   const warnings: string[] = [];
   const backupResults: Record<string, any> = {};
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.archive_delete',
+    target_type: 'instance',
+    target_id: instance.id,
+    status: 'running',
+    message: `Archiving and deleting instance ${instance.name}`,
+    started_at: new Date().toISOString(),
+  });
 
   // Step 1: Take backups while containers are still accessible
   try {
@@ -819,6 +947,12 @@ router.delete('/instances/:id', async (req: Request, res: Response) => {
 
   // Step 3: Archive (soft delete — keeps DB row + backup files)
   archiveInstance(instance.id);
+  finishOperation(
+    operation.id,
+    warnings.length > 0 ? 'failed' : 'success',
+    warnings.length > 0 ? `Instance ${instance.name} archived with warnings` : `Instance ${instance.name} archived`,
+    warnings.length > 0 ? warnings.join('; ') : undefined
+  );
 
   res.json({
     archived: true,
@@ -900,17 +1034,34 @@ router.post('/archived-instances/:id/restore', async (req: Request, res: Respons
     return;
   }
 
+  const operation = createOperation({
+    id: randomUUID(),
+    type: 'instance.restore',
+    target_type: 'instance',
+    target_id: updatedInstance.id,
+    status: 'running',
+    message: `Restoring instance ${updatedInstance.name}`,
+    started_at: new Date().toISOString(),
+  });
+
   // Recreate containers and volumes
   try {
     await createAndStartInstance(updatedInstance);
+    const current = getInstance(updatedInstance.id);
+    if (current?.status === 'running') {
+      finishOperation(operation.id, 'success', `Instance ${updatedInstance.name} restored`);
+    } else {
+      finishOperation(operation.id, 'failed', `Instance ${updatedInstance.name} failed to restore`, current?.error_message || 'Unknown restore failure');
+    }
   } catch (err: any) {
     console.error('Failed to recreate instance:', err);
+    finishOperation(operation.id, 'failed', `Instance ${updatedInstance.name} failed to restore`, err.message);
     res.status(500).json({ error: err.message });
     return;
   }
 
   res.json({
-    instance: updatedInstance,
+    instance: getInstance(updatedInstance.id) || updatedInstance,
     renamed: conflict ? finalName : undefined,
   });
 });
@@ -1748,6 +1899,12 @@ router.post('/version/update', async (req: Request, res: Response) =>
   const strategy = getUpdateStrategy();
 
   if (strategy === 'image') {
+    const activeJob = getLatestUpdateJob();
+    if (isUpdateJobActive(activeJob)) {
+      err(res, 409, 'UPDATE_IN_PROGRESS', 'An update is already running', { jobId: activeJob?.id });
+      return;
+    }
+
     const selectedVersion = targetVersion || 'latest';
     const job = createUpdateJob({
       id: randomUUID(),
@@ -2226,6 +2383,11 @@ router.post('/version/rollback', async (_req: Request, res: Response) =>
 {
   if (getUpdateStrategy() === 'image') {
     const { targetJobId } = parseOrThrow(rollbackSchema, _req.body ?? {});
+    const activeJob = getLatestUpdateJob();
+    if (isUpdateJobActive(activeJob)) {
+      err(res, 409, 'UPDATE_IN_PROGRESS', 'An update is already running', { jobId: activeJob?.id });
+      return;
+    }
     const job = targetJobId ? getUpdateJob(targetJobId) : getLatestUpdateJob();
     if (!job?.rollback_ref) {
       err(res, 400, 'ROLLBACK_UNAVAILABLE', 'No rollback reference found');

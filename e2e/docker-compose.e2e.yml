@@ -21,6 +21,8 @@ services:
       - GITHUB_TOKEN=
       - HOST_PROJECT_PATH=
       - UPDATE_BRANCH=main
+      - UPDATE_STRATEGY=image
+      - ALLOW_GIT_UPDATE=0
     networks:
       - convexer-net
 

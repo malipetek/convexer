@@ -14,6 +14,10 @@ export function clearToken() {
   localStorage.removeItem('convexer_token');
 }
 
+export function getEventsUrl(): string {
+  return `${BASE}/events`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getToken();
@@ -163,6 +167,19 @@ export const api = {
   checkUpdate: () => request<{ current_version: string; latest_version: string; has_update: boolean }>('/version/check'),
   updateApp: () => request<{ success: boolean }>('/version/update', { method: 'POST' }),
   getUpdateStatus: () => request<{ running: boolean; success: boolean | null; exitCode?: number }>('/version/update/status'),
+  getOperations: (limit = 50) => request<{ operations: Array<{
+    id: string;
+    type: string;
+    target_type: string;
+    target_id: string | null;
+    status: string;
+    message: string | null;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+  }> }>(`/operations?limit=${limit}`),
   getSavedUpdateLogs: () => request<{ logs: string; exists: boolean }>('/version/update/logs/saved'),
   getRollbackStatus: () => request<{ available: boolean; commit: string | null }>('/version/rollback/status'),
   rollback: () => request<{ success: boolean; message: string; updater_container_id: string }>('/version/rollback', { method: 'POST' }),

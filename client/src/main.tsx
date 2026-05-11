@@ -7,7 +7,7 @@ import './styles/globals.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 5000,
+      refetchInterval: 30000,
       retry: 1,
     },
   },

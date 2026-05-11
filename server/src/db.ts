@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { Instance } from './types.js';
+import { publishEvent } from './events.js';
 
 const DB_PATH = path.join(process.env.DATA_DIR || process.cwd(), 'convexer.db');
 
@@ -384,6 +385,26 @@ db.exec(`
 `);
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS operations (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    message TEXT,
+    error_message TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT
+  )
+`);
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_operations_target ON operations(target_type, target_id, created_at)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status, created_at)');
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS action_audit_logs (
     id TEXT PRIMARY KEY,
     action TEXT NOT NULL,
@@ -407,6 +428,9 @@ export function getArchivedInstances (): Instance[]
 export function archiveInstance (id: string): boolean
 {
   const result = db.prepare("UPDATE instances SET archived_at = datetime('now'), status = 'stopped' WHERE id = ?").run(id);
+  if (result.changes > 0) {
+    publishEvent({ type: 'instance.archived', instanceId: id, targetId: id, status: 'stopped' });
+  }
   return result.changes > 0;
 }
 
@@ -420,6 +444,10 @@ export function restoreArchivedInstance (id: string, newName?: string): boolean
   const result = newName
     ? stmt.run(newName, newName, newName, newName, id)
     : stmt.run(id);
+
+  if (result.changes > 0) {
+    publishEvent({ type: 'instance.restored', instanceId: id, targetId: id, status: 'creating' });
+  }
 
   return result.changes > 0;
 }
@@ -440,7 +468,9 @@ export function createInstance (instance: Omit<Instance, 'created_at' | 'updated
     VALUES (@id, @name, @status, @backend_port, @site_proxy_port, @dashboard_port, @postgres_port, @betterauth_port, @volume_name, @postgres_volume_name, @postgres_password, @instance_name, @instance_secret, @extra_env)
   `);
   stmt.run(instance);
-  return getInstance(instance.id)!;
+  const created = getInstance(instance.id)!;
+  publishEvent({ type: 'instance.created', instanceId: created.id, targetId: created.id, status: created.status });
+  return created;
 }
 
 export function updateInstance(id: string, updates: Partial<Instance>): Instance | undefined {
@@ -455,11 +485,24 @@ export function updateInstance(id: string, updates: Partial<Instance>): Instance
   const sets = fields.map(f => `${f} = @${f}`).join(', ');
   const stmt = db.prepare(`UPDATE instances SET ${sets}, updated_at = datetime('now') WHERE id = @id`);
   stmt.run({ id, ...updates });
-  return getInstance(id);
+  const updated = getInstance(id);
+  if (updated) {
+    publishEvent({
+      type: 'instance.updated',
+      instanceId: id,
+      targetId: id,
+      status: updated.status,
+      changedFields: fields,
+    });
+  }
+  return updated;
 }
 
 export function deleteInstance(id: string): boolean {
   const result = db.prepare('DELETE FROM instances WHERE id = ?').run(id);
+  if (result.changes > 0) {
+    publishEvent({ type: 'instance.deleted', instanceId: id, targetId: id });
+  }
   return result.changes > 0;
 }
 
@@ -636,6 +679,22 @@ export interface UpdateJob
   rollback_ref?: string | null;
   error_message?: string | null;
   created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface Operation
+{
+  id: string;
+  type: string;
+  target_type: string;
+  target_id?: string | null;
+  status: string;
+  message?: string | null;
+  error_message?: string | null;
+  metadata_json?: string | null;
+  created_at: string;
+  updated_at: string;
   started_at?: string | null;
   completed_at?: string | null;
 }
@@ -967,7 +1026,9 @@ export function createUpdateJob (job: {
     rollback_ref: job.rollback_ref ?? null,
     started_at: job.started_at ?? null,
   });
-  return db.prepare('SELECT * FROM update_jobs WHERE id = ?').get(job.id) as UpdateJob;
+  const created = db.prepare('SELECT * FROM update_jobs WHERE id = ?').get(job.id) as UpdateJob;
+  publishEvent({ type: 'update.created', targetId: created.id, status: created.status, message: created.target_version });
+  return created;
 }
 
 export function getUpdateJob (id: string): UpdateJob | undefined
@@ -987,13 +1048,92 @@ export function updateUpdateJob (id: string, updates: Partial<UpdateJob>): Updat
   if (fields.length === 0) return getUpdateJob(id);
   const sets = fields.map(f => `${f} = @${f}`).join(', ');
   db.prepare(`UPDATE update_jobs SET ${sets} WHERE id = @id`).run({ id, ...updates });
-  return getUpdateJob(id);
+  const updated = getUpdateJob(id);
+  if (updated) {
+    publishEvent({
+      type: 'update.updated',
+      targetId: id,
+      status: updated.status,
+      changedFields: fields,
+      message: updated.error_message || null,
+      data: { progress: updated.progress },
+    });
+  }
+  return updated;
 }
 
 export function appendUpdateJobLog (id: string, message: string): UpdateJob | undefined
 {
   db.prepare('UPDATE update_jobs SET logs = coalesce(logs, \'\') || ? || char(10) WHERE id = ?').run(message, id);
   return getUpdateJob(id);
+}
+
+export function createOperation (operation: {
+  id: string;
+  type: string;
+  target_type: string;
+  target_id?: string | null;
+  status?: string;
+  message?: string | null;
+  error_message?: string | null;
+  metadata_json?: string | null;
+  started_at?: string | null;
+}): Operation
+{
+  db.prepare(`
+    INSERT INTO operations (id, type, target_type, target_id, status, message, error_message, metadata_json, started_at)
+    VALUES (@id, @type, @target_type, @target_id, @status, @message, @error_message, @metadata_json, @started_at)
+  `).run({
+    ...operation,
+    target_id: operation.target_id ?? null,
+    status: operation.status ?? 'pending',
+    message: operation.message ?? null,
+    error_message: operation.error_message ?? null,
+    metadata_json: operation.metadata_json ?? null,
+    started_at: operation.started_at ?? null,
+  });
+  const created = getOperation(operation.id)!;
+  publishEvent({
+    type: 'operation.created',
+    operationId: created.id,
+    targetId: created.target_id || null,
+    status: created.status,
+    message: created.message || null,
+    data: { operationType: created.type, targetType: created.target_type },
+  });
+  return created;
+}
+
+export function getOperation (id: string): Operation | undefined
+{
+  return db.prepare('SELECT * FROM operations WHERE id = ?').get(id) as Operation | undefined;
+}
+
+export function getRecentOperations (limit = 50): Operation[]
+{
+  return db.prepare('SELECT * FROM operations ORDER BY created_at DESC, rowid DESC LIMIT ?').all(limit) as Operation[];
+}
+
+export function updateOperation (id: string, updates: Partial<Operation>): Operation | undefined
+{
+  const allowed = ['status', 'message', 'error_message', 'metadata_json', 'started_at', 'completed_at'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (fields.length === 0) return getOperation(id);
+  const sets = fields.map(f => `${f} = @${f}`).join(', ');
+  db.prepare(`UPDATE operations SET ${sets}, updated_at = datetime('now') WHERE id = @id`).run({ id, ...updates });
+  const updated = getOperation(id);
+  if (updated) {
+    publishEvent({
+      type: 'operation.updated',
+      operationId: id,
+      targetId: updated.target_id || null,
+      status: updated.status,
+      changedFields: fields,
+      message: updated.error_message || updated.message || null,
+      data: { operationType: updated.type, targetType: updated.target_type },
+    });
+  }
+  return updated;
 }
 
 export function createActionAuditLog (log: {
