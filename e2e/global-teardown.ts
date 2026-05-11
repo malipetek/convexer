@@ -23,13 +23,13 @@ function shellQuote(value: string): string {
 
 function cleanupE2EArtifacts(env: NodeJS.ProcessEnv): void {
   const containerNames = readLines("docker ps -a --format '{{.Names}}'")
-    .filter(name => /^convexer-(backend|dashboard|postgres|betterauth)-(e2e|valid)-/.test(name));
+    .filter(name => name === 'convexer' || name === 'convexer-candidate' || name.startsWith('convexer-image-update-') || /^convexer-(backend|dashboard|postgres|betterauth)-(e2e|valid)-/.test(name));
   if (containerNames.length > 0) {
     run(`docker rm -f ${containerNames.map(shellQuote).join(' ')}`, env);
   }
 
   const volumeNames = readLines("docker volume ls --format '{{.Name}}'")
-    .filter(name => /^convexer(-postgres)?-(e2e|valid)-/.test(name));
+    .filter(name => /^convexer(-postgres)?-(e2e|valid)-/.test(name) || /^e2e_convexer-(data|backups)$/.test(name));
   if (volumeNames.length > 0) {
     run(`docker volume rm -f ${volumeNames.map(shellQuote).join(' ')}`, env);
   }
@@ -45,6 +45,7 @@ async function globalTeardown() {
   };
 
   try {
+    cleanupE2EArtifacts(env);
     run(`docker compose -f ${COMPOSE_FILE} down -v --remove-orphans`, env);
     cleanupE2EArtifacts(env);
   } catch (err) {

@@ -64,6 +64,23 @@ async function authedJson<T>(request: APIRequestContext, token: string, path: st
   return JSON.parse(raw) as T;
 }
 
+async function authedJsonEventually<T>(request: APIRequestContext, token: string, path: string, init?: { method?: 'GET' | 'POST'; data?: unknown }): Promise<T> {
+  const value = await waitForValue<T | null>(
+    async () => {
+      try {
+        return await authedJson<T>(request, token, path, init);
+      } catch {
+        return null;
+      }
+    },
+    result => result !== null,
+    90_000,
+    1_000,
+    `${init?.method || 'GET'} ${path} to become reachable`
+  );
+  return value as T;
+}
+
 async function loginViaApi(request: APIRequestContext): Promise<string> {
   const response = await request.fetch('/api/login', {
     method: 'POST',
@@ -84,8 +101,12 @@ async function loginViaApi(request: APIRequestContext): Promise<string> {
 async function waitForUpdateIdle(request: APIRequestContext, token: string): Promise<void> {
   await waitForValue<any>(
     async () => {
-      const res = await authedJson<any>(request, token, '/api/version/update/status');
-      return res.data ?? res;
+      try {
+        const res = await authedJson<any>(request, token, '/api/version/update/status');
+        return res.data ?? res;
+      } catch {
+        return { running: true, status: 'unreachable' };
+      }
     },
     value => value.running === false,
     120_000,
@@ -356,14 +377,14 @@ test('update status endpoints expose job-compatible contract', async ({ page, re
   });
   expect(concurrentUpdate.status()).toBe(409);
 
-  const statusResponse = await authedJson<any>(request, token, '/api/version/update/status');
+  const statusResponse = await authedJsonEventually<any>(request, token, '/api/version/update/status');
   const status = statusResponse.data ?? statusResponse;
   expect(typeof status.running).toBe('boolean');
   expect(typeof status.status).toBe('string');
   expect(typeof status.progress).toBe('number');
   expect(status.jobId).toBeTruthy();
 
-  const logsResponse = await authedJson<any>(request, token, '/api/version/update/logs');
+  const logsResponse = await authedJsonEventually<any>(request, token, '/api/version/update/logs');
   expect(typeof logsResponse.logs).toBe('string');
   await waitForUpdateIdle(request, token);
 });
@@ -391,13 +412,13 @@ test('rollback status and diagnostics expose update job metadata', async ({ page
   const startData = startBody.data ?? startBody;
   expect(typeof startData.jobId).toBe('string');
 
-  const rollbackStatusRes = await authedJson<any>(request, token, '/api/version/rollback/status');
+  const rollbackStatusRes = await authedJsonEventually<any>(request, token, '/api/version/rollback/status');
   const rollbackStatus = rollbackStatusRes.data ?? rollbackStatusRes;
   expect(typeof rollbackStatus.available).toBe('boolean');
   expect(rollbackStatus).toHaveProperty('commit');
   expect(rollbackStatus).toHaveProperty('jobId');
 
-  const diagnosticsRes = await authedJson<any>(request, token, '/api/admin/diagnostics');
+  const diagnosticsRes = await authedJsonEventually<any>(request, token, '/api/admin/diagnostics');
   const diagnostics = diagnosticsRes.data ?? diagnosticsRes;
   expect(diagnostics.latest_update_job).toBeTruthy();
   expect(diagnostics.latest_update_job.id).toBe(startData.jobId);
@@ -430,8 +451,12 @@ test('update failure path reports failed job status', async ({ page, request }) 
 
   const finalStatus = await waitForValue<any>(
     async () => {
-      const res = await authedJson<any>(request, token, '/api/version/update/status');
-      return res.data ?? res;
+      try {
+        const res = await authedJson<any>(request, token, '/api/version/update/status');
+        return res.data ?? res;
+      } catch {
+        return { running: true, status: 'unreachable' };
+      }
     },
     value => value.status === 'failed' || (value.running === false && value.success === false),
     90_000,

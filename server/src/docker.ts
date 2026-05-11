@@ -79,7 +79,7 @@ export async function containerExists (
 const BACKEND_IMAGE_BASE = 'ghcr.io/get-convex/convex-backend';
 const DASHBOARD_IMAGE_BASE = 'ghcr.io/get-convex/convex-dashboard';
 const POSTGRES_IMAGE = 'postgres:16-alpine';
-const BETTERAUTH_IMAGE = 'convexer-better-auth-sidecar:latest';
+const BETTERAUTH_IMAGE = process.env.BETTERAUTH_IMAGE || 'convexer-better-auth-sidecar:latest';
 
 function getImages (instance: Pick<Instance, 'pinned_version'>): { backend: string; dashboard: string }
 {

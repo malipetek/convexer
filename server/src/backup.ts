@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { Instance } from './types.js';
 import { getInstance, getBackupConfig, createBackupHistory, updateBackupHistory, deleteOldBackups, getBackupDestinations, BackupConfig } from './db.js';
+import { rcloneWebDavCopy } from './rclone.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -306,29 +307,6 @@ export async function rsyncBackup(filePath: string, target: string): Promise<{ s
   }
 }
 
-/**
- * Build rclone remote config spec on-the-fly and copy file to remote.
- * Uses --config /dev/null with :<backend>, connection-string syntax so creds aren't written to disk.
- */
-async function rcloneCopy (
-  filePath: string,
-  remoteSpec: string,
-  subfolder: string | null | undefined,
-): Promise<{ success: boolean; error?: string }>
-{
-  try {
-    let remotePath = remoteSpec;
-    if (subfolder) {
-      const clean = subfolder.replace(/^\/+|\/+$/g, '');
-      remotePath = `${remoteSpec}/${clean}`;
-    }
-    await execAsync(`rclone copy "${filePath}" "${remotePath}" --config /dev/null`, { maxBuffer: 50 * 1024 * 1024 });
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || err.stderr };
-  }
-}
-
 export async function koofrBackup (
   filePath: string,
   email: string,
@@ -336,15 +314,11 @@ export async function koofrBackup (
   subfolder?: string | null,
 ): Promise<{ success: boolean; error?: string }>
 {
-  // Obscure password for rclone
   try {
-    const { stdout } = await execAsync(`rclone obscure "${password.replace(/"/g, '\\"')}"`);
-    const obscured = stdout.trim();
-    // Use WebDAV backend against Koofr
-    const remote = `:webdav,url="https://app.koofr.net/dav/Koofr",vendor="other",user="${email}",pass="${obscured}":`;
-    return await rcloneCopy(filePath, remote, subfolder);
+    await rcloneWebDavCopy(filePath, { url: 'https://app.koofr.net/dav/Koofr', user: email, password }, subfolder);
+    return { success: true };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { success: false, error: err.message || err.stderr };
   }
 }
 
@@ -357,12 +331,10 @@ export async function webdavBackup (
 ): Promise<{ success: boolean; error?: string }>
 {
   try {
-    const { stdout } = await execAsync(`rclone obscure "${password.replace(/"/g, '\\"')}"`);
-    const obscured = stdout.trim();
-    const remote = `:webdav,url="${url}",vendor="other",user="${user}",pass="${obscured}":`;
-    return await rcloneCopy(filePath, remote, subfolder);
+    await rcloneWebDavCopy(filePath, { url, user, password }, subfolder);
+    return { success: true };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { success: false, error: err.message || err.stderr };
   }
 }
 

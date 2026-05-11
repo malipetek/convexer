@@ -23,6 +23,8 @@ services:
       - UPDATE_BRANCH=main
       - UPDATE_STRATEGY=image
       - ALLOW_GIT_UPDATE=0
+      - CONVEXER_IMAGE=e2e-convexer
+      - BETTERAUTH_IMAGE=convexer-better-auth-sidecar:latest
     networks:
       - convexer-net
 
