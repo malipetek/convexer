@@ -10,6 +10,11 @@ type WebDavConfig = {
   password: string;
 };
 
+type NormalizedWebDavTarget = {
+  config: WebDavConfig;
+  subfolder: string;
+};
+
 function cleanRemoteSubfolder (subfolder: string | null | undefined): string
 {
   return subfolder ? subfolder.replace(/^\/+|\/+$/g, '') : '';
@@ -19,6 +24,31 @@ function webDavRemotePath (subfolder?: string | null): string
 {
   const clean = cleanRemoteSubfolder(subfolder);
   return clean ? `${WEBDAV_REMOTE}:${clean}` : `${WEBDAV_REMOTE}:`;
+}
+
+function normalizeWebDavTarget (config: WebDavConfig, subfolder?: string | null): NormalizedWebDavTarget
+{
+  const cleanSubfolder = cleanRemoteSubfolder(subfolder);
+
+  try {
+    const parsed = new URL(config.url);
+    const isKoofr = parsed.hostname.toLowerCase() === 'app.koofr.net';
+    const cleanPath = parsed.pathname.replace(/\/+$/g, '');
+    if (!isKoofr || cleanPath !== '/dav') {
+      return { config, subfolder: cleanSubfolder };
+    }
+
+    parsed.pathname = '/dav/Koofr';
+    const koofrSubfolder = cleanSubfolder === 'Koofr'
+      ? ''
+      : cleanSubfolder.replace(/^Koofr\//, '');
+    return {
+      config: { ...config, url: parsed.toString().replace(/\/$/, '') },
+      subfolder: koofrSubfolder,
+    };
+  } catch {
+    return { config, subfolder: cleanSubfolder };
+  }
 }
 
 async function webDavEnv (config: WebDavConfig): Promise<NodeJS.ProcessEnv>
@@ -39,10 +69,11 @@ export async function rcloneWebDavLsd (
   subfolder?: string | null,
 ): Promise<string>
 {
-  const env = await webDavEnv(config);
+  const target = normalizeWebDavTarget(config, subfolder);
+  const env = await webDavEnv(target.config);
   const { stdout, stderr } = await execFileAsync(
     'rclone',
-    ['lsd', webDavRemotePath(subfolder), '--config', '/dev/null', '--contimeout', '10s', '--timeout', '15s'],
+    ['lsd', webDavRemotePath(target.subfolder), '--config', '/dev/null', '--contimeout', '10s', '--timeout', '15s'],
     { env, timeout: 20_000 }
   );
   return stdout + stderr;
@@ -54,10 +85,11 @@ export async function rcloneWebDavCopy (
   subfolder?: string | null,
 ): Promise<void>
 {
-  const env = await webDavEnv(config);
+  const target = normalizeWebDavTarget(config, subfolder);
+  const env = await webDavEnv(target.config);
   await execFileAsync(
     'rclone',
-    ['copy', filePath, webDavRemotePath(subfolder), '--config', '/dev/null'],
+    ['copy', filePath, webDavRemotePath(target.subfolder), '--config', '/dev/null'],
     { env, maxBuffer: 50 * 1024 * 1024 }
   );
 }
