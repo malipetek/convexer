@@ -717,6 +717,14 @@ function AdminRepairTab ()
     }
   };
 
+  const preflightIssues = preflight ? [
+    !preflight.network_exists ? 'Docker network convexer-net is missing. Recreate Network can repair this.' : null,
+    !preflight.data_volume_exists ? 'Core data volume convexer-data is missing. Stop before repair to avoid starting with empty data.' : null,
+    !preflight.backups_volume_exists ? 'Backup volume convexer-backups is missing. Remote backups may still exist, but local backup history can be incomplete.' : null,
+    !preflight.host_project_path_configured && preflight.update_strategy === 'git' ? 'HOST_PROJECT_PATH is required for git-based updates.' : null,
+  ].filter(Boolean) as string[] : [];
+  const imageUpdate = preflight?.image_update;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -731,17 +739,57 @@ function AdminRepairTab ()
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <div className="p-2 bg-muted rounded">Docker socket: <span className="font-mono">{String(preflight?.docker_socket ?? false)}</span></div>
-            <div className="p-2 bg-muted rounded">Network: <span className="font-mono">{String(preflight?.network_exists ?? false)}</span></div>
+          <CardContent className="space-y-2 text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="p-2 bg-muted rounded">Docker socket: <span className="font-mono">{String(preflight?.docker_socket ?? false)}</span></div>
+              <div className="p-2 bg-muted rounded">Network: <span className="font-mono">{String(preflight?.network_exists ?? false)}</span></div>
             <div className="p-2 bg-muted rounded">Data volume: <span className="font-mono">{String(preflight?.data_volume_exists ?? false)}</span></div>
             <div className="p-2 bg-muted rounded">Backups volume: <span className="font-mono">{String(preflight?.backups_volume_exists ?? false)}</span></div>
-            <div className="p-2 bg-muted rounded">Update strategy: <span className="font-mono">{preflight?.update_strategy ?? 'unknown'}</span></div>
-            <div className="p-2 bg-muted rounded">Docker server: <span className="font-mono">{preflight?.server_version ?? 'unknown'}</span></div>
-          </div>
-        </CardContent>
-      </Card>
+              <div className="p-2 bg-muted rounded">Update strategy: <span className="font-mono">{preflight?.update_strategy ?? 'unknown'}</span></div>
+              <div className="p-2 bg-muted rounded">Docker server: <span className="font-mono">{preflight?.server_version ?? 'unknown'}</span></div>
+            </div>
+            {preflightIssues.length > 0 && (
+              <div className="p-3 border border-destructive/30 bg-destructive/10 rounded-md space-y-1">
+                <div className="font-medium text-destructive">Action Required</div>
+                {preflightIssues.map(issue => (
+                  <div key={issue} className="text-xs text-muted-foreground">{issue}</div>
+                ))}
+              </div>
+            )}
+            {imageUpdate && (
+              <div className="p-3 bg-muted rounded-md space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium">Image Update Runtime</div>
+                    <div className="text-xs text-muted-foreground font-mono break-all">
+                      {imageUpdate.latest_job?.jobId || 'no update job recorded'}
+                    </div>
+                  </div>
+                  <Badge variant={imageUpdate.latest_job?.running ? 'default' : imageUpdate.latest_job?.status === 'failed' ? 'destructive' : 'secondary'}>
+                    {imageUpdate.latest_job?.phase || imageUpdate.latest_job?.status || 'idle'}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                  <div className="p-2 bg-background rounded">
+                    <span className="text-muted-foreground">Active container</span>
+                    <div className="font-mono">{imageUpdate.active_container?.status || imageUpdate.active_container?.state || 'missing'}</div>
+                  </div>
+                  <div className="p-2 bg-background rounded">
+                    <span className="text-muted-foreground">Candidate</span>
+                    <div className="font-mono">{imageUpdate.candidate_container?.status || imageUpdate.candidate_container?.state || 'none'}</div>
+                  </div>
+                  <div className="p-2 bg-background rounded">
+                    <span className="text-muted-foreground">Swappers</span>
+                    <div className="font-mono">{imageUpdate.swapper_containers?.length ?? 0}</div>
+                  </div>
+                </div>
+                {imageUpdate.latest_job?.message && (
+                  <div className="text-xs text-muted-foreground break-words">{imageUpdate.latest_job.message}</div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
       <Card>
         <CardHeader>
@@ -837,6 +885,13 @@ export default function Settings() {
     refetchOnWindowFocus: false,
   });
 
+  const { data: latestUpdateStatus } = useQuery({
+    queryKey: ['update-status'],
+    queryFn: () => api.getUpdateStatus(),
+    refetchInterval: updating ? 2000 : false,
+    refetchOnWindowFocus: false,
+  });
+
   const saveSettingsMutation = useMutation({
     mutationFn: (hostname: string) => api.saveSettings(hostname),
     onSuccess: () =>
@@ -852,6 +907,7 @@ export default function Settings() {
   const updateMutation = useMutation({
     mutationFn: async () =>
     {
+      const previousVersion = versionInfo?.current_version;
       // Start the update
       await api.updateApp();
       setShowLogsDialog(true);
@@ -872,6 +928,7 @@ export default function Settings() {
           }
 
           const status = await api.getUpdateStatus();
+          queryClient.setQueryData(['update-status'], status);
           apiDownCount = 0; // Reset counter on successful poll
 
           if (!status.running && status.success !== null) {
@@ -879,6 +936,7 @@ export default function Settings() {
             setUpdateLogs(prev => [...prev, status.success ? 'Update completed successfully!' : 'Update failed.']);
             if (status.success) {
               queryClient.invalidateQueries({ queryKey: ['version'] });
+              queryClient.invalidateQueries({ queryKey: ['rollback-status'] });
               setTimeout(() => window.location.reload(), 3000);
             } else {
               setUpdating(false);
@@ -900,7 +958,7 @@ export default function Settings() {
                 const versionData = await api.getVersion();
                 const currentVersion = versionData.current_version;
                 // If the version changed, the update succeeded
-                if (currentVersion !== '1.0.36') {
+                if (!previousVersion || currentVersion !== previousVersion) {
                   setUpdateLogs(prev => [...prev, 'Update successful! Reloading...']);
                   setTimeout(() => window.location.reload(), 3000);
                 } else {
@@ -966,7 +1024,8 @@ export default function Settings() {
   const handleRollback = async () =>
   {
     if (!rollbackStatus?.commit) return;
-    if (confirm(`This will rollback to commit ${rollbackStatus.commit.slice(0, 7)}. The server will restart. Continue?`)) {
+    const rollbackTarget = rollbackStatus.rollback?.appImageName || rollbackStatus.commit;
+    if (confirm(`This will roll back to ${rollbackTarget}. The server will restart. Continue?`)) {
       setRollingBack(true);
       try {
         await api.rollback();
@@ -1226,6 +1285,37 @@ export default function Settings() {
                     <div className="text-xs text-muted-foreground mt-1">
                       Version {versionInfo.latest_version} is available
                     </div>
+                  </div>
+                )}
+
+                {(latestUpdateStatus?.jobId || updating) && (
+                  <div className="p-3 bg-muted rounded-md space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">Latest Update Job</div>
+                        <div className="text-xs text-muted-foreground font-mono break-all">
+                          {latestUpdateStatus?.jobId || 'starting'}
+                        </div>
+                      </div>
+                      <Badge variant={latestUpdateStatus?.success === false ? 'destructive' : latestUpdateStatus?.running ? 'default' : 'secondary'}>
+                        {latestUpdateStatus?.phase || latestUpdateStatus?.status || 'starting'}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="font-mono">{latestUpdateStatus?.progress ?? 0}%</span>
+                      </div>
+                      <div className="w-full bg-secondary rounded-full h-2">
+                        <div
+                          className={latestUpdateStatus?.success === false ? 'bg-red-500 h-2 rounded-full transition-all' : 'bg-blue-500 h-2 rounded-full transition-all'}
+                          style={{ width: `${Math.min(Math.max(latestUpdateStatus?.progress ?? 0, 0), 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    {latestUpdateStatus?.message && (
+                      <div className="text-xs text-muted-foreground break-words">{latestUpdateStatus.message}</div>
+                    )}
                   </div>
                 )}
 

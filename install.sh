@@ -214,8 +214,11 @@ wait_for_health() {
 }
 
 start_stack() {
-  log "Creating Docker network"
+  log "Creating Docker network and core volumes"
   docker network create convexer-net >/dev/null 2>&1 || true
+  docker volume create convexer-data >/dev/null
+  docker volume create convexer-ssh >/dev/null
+  docker volume create convexer-backups >/dev/null
 
   log "Validating Docker Compose configuration"
   docker compose -f "$INSTALL_DIR/docker-compose.yml" --project-directory "$INSTALL_DIR" config >/dev/null

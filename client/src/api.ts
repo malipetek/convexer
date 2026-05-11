@@ -166,7 +166,21 @@ export const api = {
   getVersion: () => request<{ current_version: string; latest_version?: string; has_update: boolean }>('/version'),
   checkUpdate: () => request<{ current_version: string; latest_version: string; has_update: boolean }>('/version/check'),
   updateApp: () => request<{ success: boolean }>('/version/update', { method: 'POST' }),
-  getUpdateStatus: () => request<{ running: boolean; success: boolean | null; exitCode?: number }>('/version/update/status'),
+  getUpdateStatus: () => request<{
+    running: boolean;
+    success: boolean | null;
+    jobId?: string | null;
+    status?: string;
+    phase?: string;
+    message?: string | null;
+    progress?: number;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    rollbackAvailable?: boolean;
+    rollbackRef?: string | null;
+    errorMessage?: string | null;
+    exitCode?: number;
+  }>('/version/update/status'),
   getOperations: (limit = 50) => request<{ operations: Array<{
     id: string;
     type: string;
@@ -180,8 +194,8 @@ export const api = {
     started_at: string | null;
     completed_at: string | null;
   }> }>(`/operations?limit=${limit}`),
-  getSavedUpdateLogs: () => request<{ logs: string; exists: boolean }>('/version/update/logs/saved'),
-  getRollbackStatus: () => request<{ available: boolean; commit: string | null }>('/version/rollback/status'),
+  getSavedUpdateLogs: () => request<{ logs: string; exists: boolean; jobId?: string | null; phase?: string; message?: string | null; progress?: number }>('/version/update/logs/saved'),
+  getRollbackStatus: () => request<{ available: boolean; commit: string | null; rollback_ref?: string | null; rollback?: { appImage: string; sidecarImage: string; appImageName?: string | null; sidecarImageName?: string | null } | null }>('/version/rollback/status'),
   rollback: () => request<{ success: boolean; message: string; updater_container_id: string }>('/version/rollback', { method: 'POST' }),
   getSettings: () => request<{ hostname: string }>('/settings'),
   saveSettings: (hostname: string) => request<{ success: boolean; hostname: string }>('/settings', {
@@ -246,6 +260,20 @@ export const api = {
       backups_volume_exists: boolean;
       host_project_path_configured: boolean;
       update_strategy: string;
+      image_update?: {
+        latest_job?: {
+          running: boolean;
+          status: string;
+          phase: string;
+          message?: string | null;
+          progress: number;
+          jobId?: string | null;
+          rollbackAvailable?: boolean;
+        };
+        active_container?: { state?: string | null; status?: string | null; image?: string | null; running?: boolean } | null;
+        candidate_container?: { state?: string | null; status?: string | null; image?: string | null; running?: boolean } | null;
+        swapper_containers?: Array<{ id?: string | null; name?: string | null; state?: string | null; status?: string | null; image?: string | null }>;
+      };
       server_version: string;
     }>('/admin/preflight'),
     repairNetwork: () => request<{ success: boolean; network: string }>('/admin/repair/network', { method: 'POST' }),

@@ -170,10 +170,13 @@ services:
 volumes:
   convexer-data:
     name: convexer-data
+    external: true
   convexer-ssh:
     name: convexer-ssh
+    external: true
   convexer-backups:
     name: convexer-backups
+    external: true
   umami-db-data:
   glitchtip-db-data:
 
