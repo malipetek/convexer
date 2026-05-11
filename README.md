@@ -1,23 +1,52 @@
 # Convexer
 
-> Disclaimer: this project was vibe coded with SWE-1.6, Opus 4.5, Sonnet 4.6, and GPT-5.5. Treat it like useful self-hosting software, not a polished commercial control plane. Read the code, keep backups, and test upgrades before trusting important workloads to it.
+> Disclosure: this project has been built with heavy AI assistance. That is useful for speed, but it does not magically make the software mature, audited, or production-grade. Treat Convexer as pragmatic self-hosting software that works for its maintainer's deployment, not as a polished commercial control plane. Read the code, keep backups, and test upgrades before trusting important workloads to it.
 
 Convexer is a self-hosted manager for running multiple Convex-based mobile backend bundles on one VPS. Each app instance can have its own Convex backend, Convex dashboard, PostgreSQL database, and Better Auth sidecar, while shared services such as Traefik, Umami, GlitchTip, backups, and push notification configuration live at the Convexer level to save server resources.
 
-It is inspired by CapRover: you point a server at a domain, open a few ports, and manage app backends from a web dashboard.
+It is inspired by CapRover: point a server at a domain, open a few ports, and manage app backends from a web dashboard.
+
+## Maturity
+
+Current status: early self-hosted alpha.
+
+Convexer is useful today if you are comfortable operating a VPS, Docker, DNS, and backups. It has automated checks and end-to-end tests for the main flows, and it is being used on a real server. It is still young software with sharp edges. The safest assumption is that you are the operator, not just the user.
+
+What it can offer reliably right now:
+
+- A repeatable Docker Compose deployment for one server
+- A web UI for creating and managing multiple Convex backend instances
+- Per-instance PostgreSQL containers and volumes
+- Traefik label-based routing for Convexer and instance subdomains
+- Manual and scheduled backups, including upload to configured remote destinations
+- A guarded image-based self-update path with candidate health checks and rollback metadata
+- Basic admin diagnostics for Docker, volumes, update jobs, and repair actions
+- A workable development and testing loop with TypeScript builds and Playwright e2e coverage
+
+What it does not claim to be yet:
+
+- Not a hardened multi-tenant platform
+- Not a high-availability or clustered Convex control plane
+- Not a substitute for understanding Docker, DNS, PostgreSQL, and backups
+- Not security-audited
+- Not guaranteed to preserve data if you skip backups, remove volumes, or run destructive Docker commands
+- Not a turnkey TLS/certificate-management solution in the checked-in Compose file
+- Not a promise that every update will be zero-downtime for every deployment shape
+
+If you use this for real projects, run it like infrastructure: restrict dashboard access, keep host-level backups, test restores, read release diffs, and update deliberately.
 
 ## Features
 
 - Create, start, stop, duplicate, archive, and restore Convex instances
 - Per-instance Convex backend, dashboard, PostgreSQL database, and optional Better Auth sidecar
 - PostgreSQL table browsing, schema inspection, SQL query execution, import/export, backup, and restore
-- Scheduled local and remote backups
+- Manual and scheduled local/remote backups
 - Traefik-based subdomain routing through Docker labels
 - Shared Umami analytics and GlitchTip error tracking containers
 - Per-instance environment variable and subdomain configuration
 - Per-instance health check timeout configuration
 - Live CPU, memory, disk, and network metrics
-- Self-update flow from GitHub releases
+- Image-based self-update flow with candidate health checks, status logs, diagnostics, and rollback references
 - Push notification gateway configuration scaffold for app backends
 
 ## Server Prerequisites
@@ -124,6 +153,9 @@ UPDATE_BRANCH=main
 EOF
 
 docker network create convexer-net 2>/dev/null || true
+docker volume create convexer-data
+docker volume create convexer-ssh
+docker volume create convexer-backups
 docker compose up -d --build
 ```
 
@@ -137,15 +169,22 @@ curl -s http://localhost:4000/api/version
 
 ## Updating
 
-Convexer includes a dashboard update flow that pulls from GitHub and rebuilds the app. You can also update manually:
+Convexer defaults to image-based updates. The dashboard starts an update job, pulls or uses the requested app and sidecar images, starts a candidate container on port `4001`, health-checks it, and then launches an external swapper container to replace the active `convexer` container. The update endpoints expose phase, progress, logs, rollback metadata, and runtime diagnostics.
+
+The legacy git-pull updater is disabled unless `ALLOW_GIT_UPDATE=1` is set. Prefer image updates for normal use.
+
+You can also update manually from the server:
 
 ```bash
 cd /home/convexer
 git pull --ff-only
-docker compose up -d --build convexer
+docker volume create convexer-data
+docker volume create convexer-ssh
+docker volume create convexer-backups
+docker compose up -d --build
 ```
 
-Important: Convexer data lives in Docker volumes. The core volumes are explicitly named:
+Important: Convexer data lives in Docker volumes. The core volumes are explicitly named and marked external in `docker-compose.yml` so Compose does not own their lifecycle:
 
 ```text
 convexer-data
@@ -154,6 +193,8 @@ convexer-backups
 ```
 
 Do not run `docker compose down -v` unless you intentionally want to remove persisted data.
+
+Before updating a server you care about, back up `convexer-data` and at least one representative instance PostgreSQL volume, then test that the backup can be restored.
 
 ## Backups
 
@@ -259,10 +300,14 @@ Push delivery attempts are shown in each instance's `Push` tab. If you later add
 
 - `DOMAIN`: public hostname for Convexer and generated instance subdomains
 - `AUTH_PASSWORD`: optional dashboard password
-- `HOST_PROJECT_PATH`: absolute host path to the repo, used by the in-app updater
+- `HOST_PROJECT_PATH`: absolute host path to the repo, required only for legacy git updates and host-data mounting
 - `GITHUB_REPO`: GitHub repo slug used by version checking, for example `malipetek/convexer`
 - `GITHUB_TOKEN`: optional token for private repos or higher GitHub API limits
-- `UPDATE_BRANCH`: branch used by the updater, defaults to `main`
+- `UPDATE_BRANCH`: branch used by the legacy git updater, defaults to `main`
+- `UPDATE_STRATEGY`: update mode, defaults to `image`
+- `ALLOW_GIT_UPDATE`: set to `1` only if you intentionally want to enable the legacy git-pull updater
+- `CONVEXER_IMAGE`: image base used by image updates, defaults to `convexer-convexer`
+- `BETTERAUTH_IMAGE`: Better Auth sidecar image used by managed instances and image updates
 - `TUNNEL_DOMAIN`: optional legacy Cloudflare tunnel domain
 - `TUNNEL_CONFIG_PATH`: optional legacy cloudflared config path
 
@@ -316,4 +361,5 @@ pnpm -C client dev
 
 - The current Traefik configuration defines HTTP and HTTPS entrypoints, but does not yet configure Let's Encrypt certificates in the checked-in Compose file.
 - The Convexer container mounts `/var/run/docker.sock`, so anyone with dashboard access can indirectly control Docker on the host. Use a strong `AUTH_PASSWORD` and restrict access.
-- Keep backups of `convexer-data` before updating.
+- The core Docker volumes are external. Create `convexer-data`, `convexer-ssh`, and `convexer-backups` before manual `docker compose up` runs on a fresh host.
+- Keep backups of `convexer-data` and instance PostgreSQL volumes before updating.
