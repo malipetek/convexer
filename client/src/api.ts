@@ -293,7 +293,7 @@ export const api = {
       method: 'DELETE',
     }),
     getHistory: (id: string, limit = 50) => request<{ history: any[] }>(`/instances/${id}/backup/history?limit=${limit}`),
-    triggerBackup: (id: string, type = 'database,volume') => request<{ success: boolean }>(`/instances/${id}/backup/trigger`, {
+    triggerBackup: (id: string, type = 'database,volume') => request<{ success: boolean; remote_upload_success: boolean | null; uploads: Array<{ destination_type: string; success: boolean; error?: string }> }>(`/instances/${id}/backup/trigger`, {
       method: 'POST',
       body: JSON.stringify({ type }),
     }),

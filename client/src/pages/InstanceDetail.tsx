@@ -1539,7 +1539,16 @@ function BackupNowCard ({ instanceId }: { instanceId: string })
 
   const triggerMutation = useMutation({
     mutationFn: () => api.backup.triggerBackup(instanceId, backupType),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] }),
+    onSuccess: (result) =>
+    {
+      queryClient.invalidateQueries({ queryKey: ['backupHistory', instanceId] });
+      if (result.remote_upload_success === true) {
+        alert('Backup created and uploaded to remote destination.');
+      } else if (result.remote_upload_success === false) {
+        const failed = result.uploads.filter(upload => !upload.success);
+        alert(`Backup created locally, but remote upload failed: ${failed.map(upload => upload.error || upload.destination_type).join('; ')}`);
+      }
+    },
     onError: (err: any) => alert(err.message || 'Failed to trigger backup'),
   });
 

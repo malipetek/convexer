@@ -71,7 +71,8 @@ import
   backupVolume,
   restoreDatabase,
   restoreVolume,
-  performBackup
+  performBackup,
+  uploadToDestinations
 } from './backup.js';
 import
 {
@@ -3017,12 +3018,18 @@ router.post('/instances/:id/backup/trigger', async (req: Request, res: Response)
 
     const backupType = req.body.type || 'database,volume';
     const backupId = uuidv4();
+    const backups: Array<{ type: string; id: string; filePath?: string }> = [];
+    const uploads: Awaited<ReturnType<typeof uploadToDestinations>> = [];
 
     if (backupType.includes('database')) {
       const result = await backupDatabase(instance, backupId);
       if (!result.success) {
         res.status(500).json({ error: result.error });
         return;
+      }
+      backups.push({ type: 'database', id: backupId, filePath: result.filePath });
+      if (result.filePath) {
+        uploads.push(...await uploadToDestinations(result.filePath, instance.id));
       }
     }
 
@@ -3033,9 +3040,18 @@ router.post('/instances/:id/backup/trigger', async (req: Request, res: Response)
         res.status(500).json({ error: result.error });
         return;
       }
+      backups.push({ type: 'volume', id: volumeBackupId, filePath: result.filePath });
+      if (result.filePath) {
+        uploads.push(...await uploadToDestinations(result.filePath, instance.id));
+      }
     }
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      backups,
+      uploads,
+      remote_upload_success: uploads.length > 0 ? uploads.every(upload => upload.success) : null,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

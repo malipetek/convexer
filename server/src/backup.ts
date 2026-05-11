@@ -11,6 +11,13 @@ import { rcloneWebDavCopy } from './rclone.js';
 const execAsync = promisify(exec);
 const docker = new Docker();
 
+export type BackupUploadResult = {
+  destination_id: string;
+  destination_type: string;
+  success: boolean;
+  error?: string;
+};
+
 export async function backupDatabase (instance: Instance, backupId: string, label?: string): Promise<{ success: boolean; filePath?: string; error?: string }>
 {
   // Get detected version from instance metadata
@@ -368,30 +375,41 @@ export async function s3Backup (
   }
 }
 
-async function uploadToDestination (filePath: string, instanceId: string): Promise<void>
+export async function uploadToDestinations (filePath: string, instanceId: string): Promise<BackupUploadResult[]>
 {
   const destinations = getBackupDestinations(instanceId);
   const enabledDestinations = destinations.filter(d => d.enabled === 1);
+  const results: BackupUploadResult[] = [];
 
   for (const dest of enabledDestinations) {
     const destType = dest.destination_type;
     const subfolder = dest.remote_subfolder;
+    let result: { success: boolean; error?: string } = { success: false, error: 'Missing destination configuration' };
 
     if (destType === 'rsync' && dest.rsync_target) {
       const target = subfolder ? `${dest.rsync_target.replace(/\/$/, '')}/${subfolder.replace(/^\/+|\/+$/g, '')}` : dest.rsync_target;
-      const result = await rsyncBackup(filePath, target);
+      result = await rsyncBackup(filePath, target);
       if (!result.success) console.error('Rsync failed:', result.error);
     } else if (destType === 'koofr' && dest.koofr_email && dest.koofr_password) {
-      const result = await koofrBackup(filePath, dest.koofr_email, dest.koofr_password, subfolder);
+      result = await koofrBackup(filePath, dest.koofr_email, dest.koofr_password, subfolder);
       if (!result.success) console.error('Koofr upload failed:', result.error);
     } else if (destType === 'webdav' && dest.webdav_url && dest.webdav_user && dest.webdav_password) {
-      const result = await webdavBackup(filePath, dest.webdav_url, dest.webdav_user, dest.webdav_password, subfolder);
+      result = await webdavBackup(filePath, dest.webdav_url, dest.webdav_user, dest.webdav_password, subfolder);
       if (!result.success) console.error('WebDAV upload failed:', result.error);
     } else if (destType === 's3' && dest.s3_bucket && dest.s3_access_key && dest.s3_secret_key) {
-      const result = await s3Backup(filePath, dest.s3_bucket, dest.s3_region, dest.s3_access_key, dest.s3_secret_key, dest.s3_endpoint, subfolder);
+      result = await s3Backup(filePath, dest.s3_bucket, dest.s3_region, dest.s3_access_key, dest.s3_secret_key, dest.s3_endpoint, subfolder);
       if (!result.success) console.error('S3 upload failed:', result.error);
     }
+
+    results.push({
+      destination_id: dest.id,
+      destination_type: destType,
+      success: result.success,
+      ...(result.error ? { error: result.error } : {}),
+    });
   }
+
+  return results;
 }
 
 export async function performBackup(instanceId: string): Promise<void> {
@@ -414,12 +432,12 @@ export async function performBackup(instanceId: string): Promise<void> {
     if (backupType === 'database') {
       const result = await backupDatabase(instance, backupId, 'Scheduled');
       if (result.success && result.filePath) {
-        await uploadToDestination(result.filePath, instance.id);
+        await uploadToDestinations(result.filePath, instance.id);
       }
     } else if (backupType === 'volume') {
       const result = await backupVolume(instance, backupId, 'Scheduled');
       if (result.success && result.filePath) {
-        await uploadToDestination(result.filePath, instance.id);
+        await uploadToDestinations(result.filePath, instance.id);
       }
     }
   }
