@@ -167,8 +167,16 @@ write_env_file() {
   log "Writing .env"
   local repo_slug
   repo_slug="$(printf '%s' "$REPO_URL" | sed -E 's#^https://github.com/##; s#^git@github.com:##; s#\\.git$##')"
+  local env_file="${INSTALL_DIR}/.env"
+  local tmp_file="${INSTALL_DIR}/.env.tmp.$$"
 
-  cat > "$INSTALL_DIR/.env" <<EOF
+  if [[ -f "$env_file" ]]; then
+    local backup_file="${INSTALL_DIR}/.env.backup.$(date +%Y%m%d%H%M%S)"
+    cp "$env_file" "$backup_file"
+    log "Existing .env backed up to ${backup_file}"
+  fi
+
+  cat > "$tmp_file" <<EOF
 DOMAIN=${DOMAIN}
 AUTH_PASSWORD=${AUTH_PASSWORD}
 HOST_PROJECT_PATH=${INSTALL_DIR}
@@ -182,14 +190,39 @@ BETTERAUTH_IMAGE=convexer-better-auth-sidecar
 TUNNEL_DOMAIN=
 TUNNEL_CONFIG_PATH=
 EOF
+  chmod 600 "$tmp_file"
+  mv "$tmp_file" "$env_file"
+}
+
+wait_for_health() {
+  log "Waiting for Convexer health check"
+  local deadline=$((SECONDS + 180))
+  local last_error="not attempted"
+
+  while [[ "$SECONDS" -lt "$deadline" ]]; do
+    if curl -fsS --max-time 5 "http://127.0.0.1:4000/api/health" >/dev/null 2>&1; then
+      log "Convexer health check passed"
+      return 0
+    fi
+    last_error="health endpoint not ready"
+    sleep 3
+  done
+
+  echo "Convexer did not become healthy within 180 seconds: ${last_error}" >&2
+  echo "Inspect logs with: cd ${INSTALL_DIR} && docker compose logs --tail=200 convexer" >&2
+  exit 1
 }
 
 start_stack() {
   log "Creating Docker network"
   docker network create convexer-net >/dev/null 2>&1 || true
 
+  log "Validating Docker Compose configuration"
+  docker compose -f "$INSTALL_DIR/docker-compose.yml" --project-directory "$INSTALL_DIR" config >/dev/null
+
   log "Starting Convexer"
   docker compose -f "$INSTALL_DIR/docker-compose.yml" --project-directory "$INSTALL_DIR" up -d --build
+  wait_for_health
 }
 
 print_summary() {

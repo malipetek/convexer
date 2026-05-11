@@ -8,6 +8,18 @@ import { getBackendTraefikLabels, getDashboardTraefikLabels, getBetterAuthTraefi
 const docker = new Docker();
 const NETWORK_NAME = 'convexer-net';
 
+export type InstanceProvisionStep = (step: string, message: string) => void | Promise<void>;
+
+async function emitProvisionStep (onStep: InstanceProvisionStep | undefined, step: string, message: string): Promise<void>
+{
+  if (!onStep) return;
+  try {
+    await onStep(step, message);
+  } catch (error) {
+    console.warn(`Provision step callback failed for ${step}:`, error instanceof Error ? error.message : String(error));
+  }
+}
+
 /**
  * Get container by name, with optional fallback to stored ID.
  * Always prefers name-based lookup since names are deterministic and survive container recreation.
@@ -115,15 +127,21 @@ async function startContainer (container: Docker.Container, label: string): Prom
   }
 }
 
-export async function createAndStartInstance (instance: Instance, beforeBackendStart?: () => Promise<void>): Promise<void>
+export async function createAndStartInstance (
+  instance: Instance,
+  beforeBackendStart?: () => Promise<void>,
+  onStep?: InstanceProvisionStep
+): Promise<void>
 {
   try {
     const volumeName = instance.volume_name;
     const postgresVolumeName = instance.postgres_volume_name;
 
     // Create volumes (idempotent - Docker ignores if already exists)
+    await emitProvisionStep(onStep, 'volumes_creating', `Preparing Docker volumes for ${instance.name}`);
     await docker.createVolume({ Name: volumeName }).catch(() => { });
     await docker.createVolume({ Name: postgresVolumeName }).catch(() => { });
+    await emitProvisionStep(onStep, 'volumes_ready', `Docker volumes are ready for ${instance.name}`);
 
     const isLinux = process.platform === 'linux';
     const extraHosts = isLinux ? ['host.docker.internal:host-gateway'] : [];
@@ -136,6 +154,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     // Check if PostgreSQL container already exists
     let postgresContainer = await getContainerByRole(instance, 'postgres');
     if (!postgresContainer) {
+      await emitProvisionStep(onStep, 'postgres_creating', `Creating PostgreSQL container for ${instance.name}`);
     // Create PostgreSQL container
     // No PortBindings: PostgreSQL is only accessible within the Docker network
       postgresContainer = await docker.createContainer({
@@ -162,16 +181,20 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start postgres (idempotent - ignores if already running)
+    await emitProvisionStep(onStep, 'postgres_starting', `Starting PostgreSQL container for ${instance.name}`);
     await startContainer(postgresContainer, `PostgreSQL container for ${instance.name}`);
 
     updateInstance(instance.id, { postgres_container_id: postgresContainer.id });
 
     // Wait for PostgreSQL to be ready
     const postgresTimeout = instance.postgres_health_check_timeout || 60_000;
+    await emitProvisionStep(onStep, 'postgres_health_checking', `Waiting for PostgreSQL health for ${instance.name}`);
     await waitForPostgres(instance.name, postgresTimeout);
+    await emitProvisionStep(onStep, 'postgres_ready', `PostgreSQL is ready for ${instance.name}`);
 
     // Hook for pre-backend operations (e.g. restore DB/volume during duplication)
     if (beforeBackendStart) {
+      await emitProvisionStep(onStep, 'pre_backend_hook', `Running pre-backend hook for ${instance.name}`);
       await beforeBackendStart();
     }
 
@@ -223,6 +246,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     // Check if backend container already exists
     let backendContainer = await getContainerByRole(instance, 'backend');
     if (!backendContainer) {
+      await emitProvisionStep(onStep, 'backend_creating', `Creating backend container for ${instance.name}`);
       // Create backend container
       backendContainer = await docker.createContainer({
         Image: backendImage,
@@ -251,17 +275,22 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start backend (idempotent - ignores if already running)
+    await emitProvisionStep(onStep, 'backend_starting', `Starting backend container for ${instance.name}`);
     await startContainer(backendContainer, `backend container for ${instance.name}`);
 
     updateInstance(instance.id, { backend_container_id: backendContainer.id });
 
     // Wait for backend to be healthy (use container name on network)
     const backendTimeout = instance.health_check_timeout || 300_000;
+    await emitProvisionStep(onStep, 'backend_health_checking', `Waiting for backend health for ${instance.name}`);
     await waitForHealth(`http://convexer-backend-${instance.name}:3210`, backendTimeout);
+    await emitProvisionStep(onStep, 'backend_ready', `Backend is ready for ${instance.name}`);
 
     // Generate admin key
+    await emitProvisionStep(onStep, 'admin_key_generating', `Generating admin key for ${instance.name}`);
     const adminKey = await generateAdminKey(backendContainer, instance.instance_name, instance.instance_secret);
     updateInstance(instance.id, { admin_key: adminKey });
+    await emitProvisionStep(onStep, 'admin_key_ready', `Admin key generated for ${instance.name}`);
 
     // Determine public-facing URLs for the dashboard's browser-side code
     let publicBackendUrl = `http://localhost:${instance.backend_port}`;
@@ -279,6 +308,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     const dashboardTraefikLabels = getDashboardTraefikLabels(instance, domain);
     let dashboardContainer = await getContainerByRole(instance, 'dashboard');
     if (!dashboardContainer) {
+      await emitProvisionStep(onStep, 'dashboard_creating', `Creating dashboard container for ${instance.name}`);
       // Create dashboard container
       dashboardContainer = await docker.createContainer({
         Image: dashboardImage,
@@ -310,27 +340,36 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
     }
 
     // Start dashboard (idempotent - ignores if already running)
+    await emitProvisionStep(onStep, 'dashboard_starting', `Starting dashboard container for ${instance.name}`);
     await startContainer(dashboardContainer, `dashboard container for ${instance.name}`);
 
     updateInstance(instance.id, {
       dashboard_container_id: dashboardContainer.id,
       status: 'running',
     });
+    await emitProvisionStep(onStep, 'dashboard_ready', `Dashboard is ready for ${instance.name}`);
 
     // Create and start Better Auth sidecar
     try {
+      await emitProvisionStep(onStep, 'betterauth_starting', `Starting Better Auth sidecar for ${instance.name}`);
       await createBetterAuthSidecar(instance);
+      await emitProvisionStep(onStep, 'betterauth_ready', `Better Auth sidecar is ready for ${instance.name}`);
     } catch (err: any) {
       console.warn(`Failed to create Better Auth sidecar for ${instance.name}:`, err.message);
+      await emitProvisionStep(onStep, 'betterauth_failed', `Better Auth sidecar failed for ${instance.name}: ${err.message}`);
     }
 
     // Add cloudflared tunnel routes
     try {
+      await emitProvisionStep(onStep, 'tunnel_configuring', `Configuring tunnel routes for ${instance.name}`);
       addTunnelRoutes(instance);
+      await emitProvisionStep(onStep, 'tunnel_ready', `Tunnel routes configured for ${instance.name}`);
     } catch (err: any) {
       console.warn(`Failed to add tunnel routes for ${instance.name}:`, err.message);
+      await emitProvisionStep(onStep, 'tunnel_failed', `Tunnel route configuration failed for ${instance.name}: ${err.message}`);
     }
 
+    await emitProvisionStep(onStep, 'instance_running', `Instance ${instance.name} is running`);
     console.log(`Instance ${instance.name} is running`);
   } catch (err: any) {
     console.error(`Failed to create instance ${instance.name}:`, err.message);
@@ -338,6 +377,7 @@ export async function createAndStartInstance (instance: Instance, beforeBackendS
       status: 'error',
       error_message: err.message,
     });
+    await emitProvisionStep(onStep, 'instance_failed', `Instance ${instance.name} failed: ${err.message}`);
   }
 }
 

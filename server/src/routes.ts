@@ -10,12 +10,8 @@ import
   getAllInstances,
   getArchivedInstances,
   getInstance,
-  getInstanceByName,
   createInstance,
   updateInstance,
-  deleteInstance,
-  archiveInstance,
-  restoreArchivedInstance,
   allocatePorts,
   getBackupConfig,
   createBackupConfig,
@@ -42,8 +38,6 @@ import
   getUpdateJob,
   updateUpdateJob,
   appendUpdateJobLog,
-  createOperation,
-  updateOperation,
   getRecentOperations,
   createActionAuditLog,
   getActionAuditLogs
@@ -51,9 +45,6 @@ import
 import
 {
   createAndStartInstance,
-  startInstance,
-  stopInstance,
-  removeInstance,
   syncInstanceStatuses,
   getContainerLogs,
   ensureImages,
@@ -89,11 +80,11 @@ import
   refreshBackupScheduler
 } from './scheduler.js';
 import { isAuthEnabled, createSession } from './auth.js';
-import { addTunnelRoutes, isTunnelEnabled, getInstanceHostnames, getTunnelDomain, removeTunnelRoutes } from './tunnel.js';
+import { isTunnelEnabled, getInstanceHostnames, getTunnelDomain } from './tunnel.js';
 import { randomUUID } from 'crypto';
 import { getBackendTraefikLabels, getBetterAuthTraefikLabels, getDashboardTraefikLabels, getTraefikStatus } from './traefik.js';
 import * as postgres from './postgres.js';
-import { readFileSync, promises as fsPromises } from 'fs';
+import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import path from 'path';
@@ -101,7 +92,15 @@ import { sendPush, supportedPushProviders, PushProvider } from './push.js';
 import { AppError, asError, err, ok } from './http.js';
 import { createInstanceSchema, parseOrThrow, postgresQuerySchema, repairCleanupSchema, rollbackSchema, toExtraEnvJson, updateAppSchema, updateHealthCheckSchema, updateSettingsSchema } from './validation.js';
 import { formatSseEvent, getRecentEvents, subscribeEvents } from './events.js';
-import { runAppEffect, tryPromiseApp, withTransientRetry } from './effectRuntime.js';
+import {
+  archiveAndDeleteInstanceLifecycle,
+  createInstanceLifecycle,
+  forgetInstanceLifecycle,
+  permanentlyDeleteArchivedInstanceLifecycle,
+  restoreArchivedInstanceLifecycle,
+  startInstanceLifecycle,
+  stopInstanceLifecycle,
+} from './services/instanceLifecycle.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -474,16 +473,6 @@ function audit(action: string, status: string, details?: string, target?: string
   });
 }
 
-function finishOperation (operationId: string, status: 'success' | 'failed', message: string, errorMessage?: string)
-{
-  updateOperation(operationId, {
-    status,
-    message,
-    error_message: errorMessage ?? null,
-    completed_at: new Date().toISOString(),
-  });
-}
-
 async function runImageUpdateJob(jobId: string, targetVersion: string) {
   const baseImage = process.env.CONVEXER_IMAGE || 'convexer-convexer';
   const sidecarImage = process.env.BETTERAUTH_IMAGE || 'convexer-better-auth-sidecar';
@@ -750,215 +739,49 @@ router.get('/instances/:id', (req: Request, res: Response) => {
 
 // Create instance
 router.post('/instances', (req: Request, res: Response) => {
-  const input = parseOrThrow(createInstanceSchema, req.body);
-  const { name, extra_env } = input;
-  const instanceName = name || `instance-${Date.now()}`;
-  const id = uuidv4();
-  const instanceSecret = crypto.randomBytes(32).toString('hex');
-  const ports = allocatePorts();
-
-  // Auto-generate subdomains if not provided
-  const domain = process.env.DOMAIN || '';
-  const finalExtraEnv = { ...(extra_env || {}) };
-  if (!finalExtraEnv.BACKEND_DOMAIN) {
-    finalExtraEnv.BACKEND_DOMAIN = domain ? `${instanceName}.${domain}` : instanceName;
-  }
-  if (!finalExtraEnv.SITE_DOMAIN) {
-    finalExtraEnv.SITE_DOMAIN = domain ? `${instanceName}-site.${domain}` : `${instanceName}-site`;
-  }
-  if (!finalExtraEnv.DASHBOARD_DOMAIN) {
-    finalExtraEnv.DASHBOARD_DOMAIN = domain ? `${instanceName}-dash.${domain}` : `${instanceName}-dash`;
-  }
-
-  const instance = createInstance({
-    id,
-    name: name || `instance-${Date.now()}`,
-    status: 'creating',
-    backend_port: ports.backendPort,
-    site_proxy_port: ports.siteProxyPort,
-    dashboard_port: ports.dashboardPort,
-    postgres_port: ports.postgresPort,
-    betterauth_port: ports.betterauthPort,
-    volume_name: `convexer-${instanceName}`,
-    postgres_volume_name: `convexer-postgres-${instanceName}`,
-    postgres_password: crypto.randomBytes(32).toString('hex'),
-    instance_name: instanceName,
-    instance_secret: instanceSecret,
-    extra_env: toExtraEnvJson(finalExtraEnv),
-    pinned_version: null,
-    detected_version: null,
-    health_check_timeout: 300000,
-    postgres_health_check_timeout: 60000,
-  });
-
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.create',
-    target_type: 'instance',
-    target_id: instance.id,
-    status: 'running',
-    message: `Creating instance ${instance.name}`,
-    started_at: new Date().toISOString(),
-  });
-
-  // Start creation in background
-  createAndStartInstance(instance).then(() => {
-    const current = getInstance(instance.id);
-    if (current?.status === 'running') {
-      finishOperation(operation.id, 'success', `Instance ${instance.name} is running`);
-    } else {
-      finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, current?.error_message || 'Unknown creation failure');
-    }
-  }).catch(err => {
-    console.error(`Background creation failed for ${instanceName}:`, err);
-    updateInstance(instance.id, { status: 'error', error_message: err.message });
-    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, err.message);
-  });
-
+  const instance = createInstanceLifecycle(parseOrThrow(createInstanceSchema, req.body));
   res.status(201).json(instance);
 });
 
 // Start instance
 router.post('/instances/:id/start', async (req: Request, res: Response) => {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.start',
-    target_type: 'instance',
-    target_id: instance.id,
-    status: 'running',
-    message: `Starting instance ${instance.name}`,
-    started_at: new Date().toISOString(),
-  });
   try {
-    await runAppEffect(withTransientRetry(tryPromiseApp({
-      try: () => startInstance(instance),
-      code: 'INSTANCE_START_FAILED',
-    })));
-    finishOperation(operation.id, 'success', `Instance ${instance.name} started`);
-    res.json(getInstance(instance.id));
-  } catch (err: any) {
-    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to start`, err.message);
-    res.status(500).json({ error: err.message });
+    res.json(await startInstanceLifecycle(req.params.id as string));
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
 });
 
 // Stop instance
 router.post('/instances/:id/stop', async (req: Request, res: Response) => {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.stop',
-    target_type: 'instance',
-    target_id: instance.id,
-    status: 'running',
-    message: `Stopping instance ${instance.name}`,
-    started_at: new Date().toISOString(),
-  });
   try {
-    await runAppEffect(withTransientRetry(tryPromiseApp({
-      try: () => stopInstance(instance),
-      code: 'INSTANCE_STOP_FAILED',
-    })));
-    finishOperation(operation.id, 'success', `Instance ${instance.name} stopped`);
-    res.json(getInstance(instance.id));
-  } catch (err: any) {
-    finishOperation(operation.id, 'failed', `Instance ${instance.name} failed to stop`, err.message);
-    res.status(500).json({ error: err.message });
+    res.json(await stopInstanceLifecycle(req.params.id as string));
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
 });
 
 // Soft delete — remove from DB only, leave containers running
 router.post('/instances/:id/forget', (req: Request, res: Response) => {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
+  try {
+    forgetInstanceLifecycle(req.params.id as string);
+    res.status(204).send();
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.forget',
-    target_type: 'instance',
-    target_id: instance.id,
-    status: 'running',
-    message: `Forgetting instance ${instance.name}`,
-    started_at: new Date().toISOString(),
-  });
-  deleteInstance(instance.id);
-  finishOperation(operation.id, 'success', `Instance ${instance.name} forgotten`);
-  res.status(204).send();
 });
 
 // Delete — back up, remove containers/volumes/tunnel, then archive (soft delete)
 router.delete('/instances/:id', async (req: Request, res: Response) => {
-  const instance = getInstance(req.params.id as string);
-  if (!instance) {
-    res.status(404).json({ error: 'Instance not found' });
-    return;
-  }
-
-  const warnings: string[] = [];
-  const backupResults: Record<string, any> = {};
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.archive_delete',
-    target_type: 'instance',
-    target_id: instance.id,
-    status: 'running',
-    message: `Archiving and deleting instance ${instance.name}`,
-    started_at: new Date().toISOString(),
-  });
-
-  // Step 1: Take backups while containers are still accessible
   try {
-    const dbBackupId = randomUUID();
-    backupResults.database = await backupDatabase(instance, dbBackupId, 'Pre-deletion');
-  } catch (err: any) {
-    console.warn(`Pre-deletion DB backup failed for ${instance.name}:`, err.message);
-    backupResults.database = { success: false, error: err.message };
+    res.json(await archiveAndDeleteInstanceLifecycle(req.params.id as string));
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
-
-  try {
-    const volBackupId = randomUUID();
-    backupResults.volume = await backupVolume(instance, volBackupId, 'Pre-deletion');
-  } catch (err: any) {
-    console.warn(`Pre-deletion volume backup failed for ${instance.name}:`, err.message);
-    backupResults.volume = { success: false, error: err.message };
-  }
-
-  // Step 2: Remove containers and volumes
-  try { await removeInstance(instance); } catch (err: any) {
-    console.warn(`Failed to remove containers:`, err.message);
-    warnings.push(`containers: ${err.message}`);
-  }
-
-  try { removeTunnelRoutes(instance); } catch (err: any) {
-    console.warn(`Failed to remove tunnel routes:`, err.message);
-    warnings.push(`tunnel: ${err.message}`);
-  }
-
-  // Step 3: Archive (soft delete — keeps DB row + backup files)
-  archiveInstance(instance.id);
-  finishOperation(
-    operation.id,
-    warnings.length > 0 ? 'failed' : 'success',
-    warnings.length > 0 ? `Instance ${instance.name} archived with warnings` : `Instance ${instance.name} archived`,
-    warnings.length > 0 ? warnings.join('; ') : undefined
-  );
-
-  res.json({
-    archived: true,
-    warnings: warnings.length ? warnings : undefined,
-    backups: backupResults,
-  });
 });
 
 // List archived instances
@@ -976,94 +799,24 @@ router.get('/archived-instances', (_req: Request, res: Response) =>
 // Permanently delete an archived instance (removes DB row + backup files)
 router.delete('/archived-instances/:id', async (req: Request, res: Response) =>
 {
-  const instance = getInstance(req.params.id as string);
-  if (!instance || !instance.archived_at) {
-    res.status(404).json({ error: 'Archived instance not found' });
-    return;
+  try {
+    await permanentlyDeleteArchivedInstanceLifecycle(req.params.id as string);
+    res.status(204).send();
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
-
-  // Delete backup files from disk
-  const history = getBackupHistory(instance.id, 1000);
-  for (const backup of history) {
-    if (backup.file_path) {
-      try { await fsPromises.unlink(backup.file_path); } catch { /* already gone */ }
-    }
-  }
-  // Remove backup directory
-  const backupDir = path.join(process.env.DATA_DIR || process.cwd(), 'backups', instance.id);
-  try { await fsPromises.rm(backupDir, { recursive: true, force: true }); } catch { /* dir may not exist */ }
-
-  deleteInstance(instance.id);
-  res.status(204).send();
 });
 
 // Restore an archived instance
 router.post('/archived-instances/:id/restore', async (req: Request, res: Response) =>
 {
-  const instance = getInstance(req.params.id as string);
-  if (!instance || !instance.archived_at) {
-    res.status(404).json({ error: 'Archived instance not found' });
-    return;
-  }
-
-  // Check for naming conflicts with active instances
-  let finalName = instance.name;
-  let conflict = getInstanceByName(instance.name);
-
-  // Generate a random name if there's a conflict
-  if (conflict) {
-    const adjectives = ['swift', 'calm', 'bright', 'eager', 'gentle', 'happy', 'kind', 'lively', 'proud', 'wise'];
-    const nouns = ['bear', 'fox', 'hawk', 'lion', 'owl', 'tiger', 'wolf', 'eagle', 'deer', 'rabbit'];
-    const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
-    const randomSuffix = Math.floor(Math.random() * 1000);
-    finalName = `${randomAdj}-${randomNoun}-${randomSuffix}`;
-  }
-
-  // Unarchive the instance (set archived_at to null, update name if needed)
-  const restored = restoreArchivedInstance(instance.id, conflict ? finalName : undefined);
-  if (!restored) {
-    res.status(500).json({ error: 'Failed to restore instance' });
-    return;
-  }
-
-  // Get the updated instance
-  const updatedInstance = getInstance(instance.id);
-  if (!updatedInstance) {
-    res.status(500).json({ error: 'Failed to retrieve restored instance' });
-    return;
-  }
-
-  const operation = createOperation({
-    id: randomUUID(),
-    type: 'instance.restore',
-    target_type: 'instance',
-    target_id: updatedInstance.id,
-    status: 'running',
-    message: `Restoring instance ${updatedInstance.name}`,
-    started_at: new Date().toISOString(),
-  });
-
-  // Recreate containers and volumes
   try {
-    await createAndStartInstance(updatedInstance);
-    const current = getInstance(updatedInstance.id);
-    if (current?.status === 'running') {
-      finishOperation(operation.id, 'success', `Instance ${updatedInstance.name} restored`);
-    } else {
-      finishOperation(operation.id, 'failed', `Instance ${updatedInstance.name} failed to restore`, current?.error_message || 'Unknown restore failure');
-    }
-  } catch (err: any) {
-    console.error('Failed to recreate instance:', err);
-    finishOperation(operation.id, 'failed', `Instance ${updatedInstance.name} failed to restore`, err.message);
-    res.status(500).json({ error: err.message });
-    return;
+    res.json(await restoreArchivedInstanceLifecycle(req.params.id as string));
+  } catch (error) {
+    const appError = asError(error);
+    res.status(appError.status).json({ error: appError.message });
   }
-
-  res.json({
-    instance: getInstance(updatedInstance.id) || updatedInstance,
-    renamed: conflict ? finalName : undefined,
-  });
 });
 
 // Get logs
