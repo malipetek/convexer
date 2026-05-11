@@ -1,3 +1,4 @@
+
 # Convexer
 
 > Disclosure: this project has been built with heavy AI assistance. That is useful for speed, but it does not magically make the software mature, audited, or production-grade. Treat Convexer as pragmatic self-hosting software that works for its maintainer's deployment, not as a polished commercial control plane. Read the code, keep backups, and test upgrades before trusting important workloads to it.
@@ -5,6 +6,138 @@
 Convexer is a self-hosted manager for running multiple Convex-based mobile backend bundles on one VPS. Each app instance can have its own Convex backend, Convex dashboard, PostgreSQL database, and Better Auth sidecar, while shared services such as Traefik, Umami, GlitchTip, backups, and push notification configuration live at the Convexer level to save server resources.
 
 It is inspired by CapRover: point a server at a domain, open a few ports, and manage app backends from a web dashboard.
+
+```mermaid
+graph TB
+    subgraph Install["Installation & Bootstrap"]
+        1a["1a: install base packages"]
+        1b["1b: install Docker"]
+        1c["1c: clone repo"]
+        1d["1d: create network"]
+        1e["1e: create volumes"]
+        1f["1f: docker compose up"]
+    end
+
+    subgraph Boot["Server Boot"]
+        2a["2a: run migrations"]
+        2b["2b: init SQLite"]
+        2c["2c: load routes"]
+        2d["2d: ensure network"]
+        2e["2e: sync statuses"]
+        2f["2f: start scheduler"]
+    end
+
+    subgraph Provision["Instance Provisioning"]
+        3a["3a: create instance"]
+        3c["3c: pull images"]
+        3d["3d: docker socket"]
+        3e["3e: generate labels"]
+        3f["3f: Traefik routing"]
+    end
+
+    subgraph Auth["Better Auth Sidecar"]
+        4a["4a: PostgreSQL pool"]
+        4b["4b: create schema"]
+        4c["4c: init Better Auth"]
+        4d["4d: JWT plugin"]
+        4e["4e: start server"]
+    end
+
+    subgraph Backup["Backup System"]
+        5a["5a: create history"]
+        5b["5b: pg_dump exec"]
+        5c["5c: write local"]
+        5d["5d: rclone upload"]
+        5e["5e: backup tools"]
+    end
+
+    subgraph Updates["Image Updates"]
+        6a["6a: determine strategy"]
+        6c["6c: pull images"]
+        6d["6d: image env vars"]
+        6e["6e: health check"]
+        6f["6f: rollback metadata"]
+    end
+
+    subgraph Build["Docker Build"]
+        7a["7a: Better Auth builder"]
+        7b["7b: client builder"]
+        7c["7c: build client"]
+        7d["7d: runtime stage"]
+        7e["7e: copy client"]
+        7f["7f: start server"]
+    end
+
+    subgraph Release["Release Pipeline"]
+        8a["8a: bump version"]
+        8b["8b: commit tag"]
+        8c["8c: push to GitHub"]
+        8d["8d: GitHub Actions"]
+        8e["8e: multi-arch build"]
+        8f["8f: publish sidecar"]
+    end
+
+    1a --> 1b
+    1b --> 1c
+    1c --> 1d
+    1d --> 1e
+    1e --> 1f
+
+    1f -->|starts| 2a
+    1d -->|enables| 2d
+    1e -->|enables| 2e
+    2a --> 2b
+    2b --> 2c
+    2c --> 2d
+    2d --> 2e
+    2e --> 2f
+
+    1f -->|mounts socket| 3d
+    3d -->|enables| 3c
+    3a --> 3c
+    3a --> 3e
+    3e --> 3f
+
+    3a -->|creates PostgreSQL| 4a
+    4a --> 4b
+    4b --> 4c
+    4c --> 4d
+    4d --> 4e
+
+    3a -->|creates PostgreSQL| 5b
+    5a --> 5b
+    5b --> 5c
+    5c --> 5d
+    5e -.->|tools in image| 5d
+
+    1f -->|sets env| 6d
+    6d -->|controls| 6c
+    6a --> 6c
+    6c --> 6e
+    6e --> 6f
+
+    7a -.->|builds| 7d
+    7b --> 7c
+    7c -->|output| 7e
+    7e --> 7d
+    7d --> 7f
+
+    8a --> 8b
+    8b --> 8c
+    8c -->|triggers| 8d
+    8d --> 8e
+    8e --> 8f
+    7d -->|provides artifacts| 8e
+
+    style Install fill:#fcc2d7
+    style Boot fill:#a5d8ff
+    style Provision fill:#b2f2bb
+    style Auth fill:#d0bfff
+    style Backup fill:#ffec99
+    style Updates fill:#ffd8a8
+    style Build fill:#99e9f2
+    style Release fill:#eebefa
+```
 
 ## Maturity
 
