@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Convexer Docker build-cache prune
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=convexer-prune-build-cache.service
+
+[Install]
+WantedBy=timers.target

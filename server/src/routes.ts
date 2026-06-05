@@ -104,12 +104,14 @@ import {
   startInstanceLifecycle,
   stopInstanceLifecycle,
 } from './services/instanceLifecycle.js';
+import { getDisplayDiskUsage, getPrimaryDiskUsage, parseDfOutput, parseDockerSystemDf } from './systemStats.js';
 
 const execAsync = promisify(exec);
 const docker = new Docker();
 const CONVEX_BACKEND_IMAGE = 'ghcr.io/get-convex/convex-backend';
 const CONVEX_DASHBOARD_IMAGE = 'ghcr.io/get-convex/convex-dashboard';
 const BETTERAUTH_IMAGE = process.env.BETTERAUTH_IMAGE || 'convexer-better-auth-sidecar:latest';
+const BUILD_CACHE_PRUNE_COMMAND = 'docker builder prune -af';
 
 // Read version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -2027,22 +2029,16 @@ router.get('/server/stats', async (_req: Request, res: Response) =>
 
     // Get disk usage
     let diskUsage: any[] = [];
+    let primaryDiskUsage: any = null;
     try {
-      const { stdout } = await execAsync('df -h');
-      const lines = stdout.split('\n').slice(1);
-      for (const line of lines) {
-        const parts = line.split(/\s+/);
-        if (parts.length >= 6 && parts[0] !== '' && !parts[0].startsWith('/dev/loop')) {
-          diskUsage.push({
-            filesystem: parts[0],
-            size: parts[1],
-            used: parts[2],
-            available: parts[3],
-            usage_percent: parts[4],
-            mountpoint: parts[5],
-          });
-        }
-      }
+      const { stdout } = await execAsync('df -hP');
+      const allDiskUsage = parseDfOutput(stdout);
+      primaryDiskUsage = getPrimaryDiskUsage(allDiskUsage, [
+        process.env.DATA_DIR || '/app/server/data',
+        '/app/host-data',
+        '/',
+      ]) || null;
+      diskUsage = getDisplayDiskUsage(allDiskUsage, primaryDiskUsage);
     } catch (err) {
       // Disk stats unavailable
     }
@@ -2051,22 +2047,7 @@ router.get('/server/stats', async (_req: Request, res: Response) =>
     let dockerDiskUsage: any = {};
     try {
       const { stdout } = await execAsync('docker system df');
-      const lines = stdout.split('\n');
-      if (lines.length > 1) {
-        const header = lines[0].split(/\s+/);
-        const types = ['Images', 'Containers', 'Local Volumes', 'Build Cache'];
-        for (let i = 1; i < lines.length && i - 1 < types.length; i++) {
-          const parts = lines[i].split(/\s+/).filter(p => p);
-          if (parts.length >= 4) {
-            dockerDiskUsage[types[i - 1].toLowerCase().replace(' ', '_')] = {
-              total_size: parts[1],
-              active: parts[2],
-              size: parts[3],
-              reclaimable: parts[4] || '',
-            };
-          }
-        }
-      }
+      dockerDiskUsage = parseDockerSystemDf(stdout);
     } catch (err) {
       // Docker disk stats unavailable
     }
@@ -2124,6 +2105,7 @@ router.get('/server/stats', async (_req: Request, res: Response) =>
       release: os.release(),
 
       // Disk usage
+      primary_disk_usage: primaryDiskUsage,
       disk_usage: diskUsage,
 
       // Docker disk usage
@@ -3049,7 +3031,7 @@ router.post('/ops/docker/prune-build-cache', async (_req: Request, res: Response
 {
   try {
     const before = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
-    const { stdout, stderr } = await execAsync('docker builder prune -f');
+    const { stdout, stderr } = await execAsync(BUILD_CACHE_PRUNE_COMMAND);
     const after = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
     res.json({
       success: true,
@@ -3294,7 +3276,7 @@ router.post('/admin/repair/cleanup', async (req: Request, res: Response) =>
   try {
     parseOrThrow(repairCleanupSchema, req.body);
     const before = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
-    const { stdout, stderr } = await execAsync('docker builder prune -f');
+    const { stdout, stderr } = await execAsync(BUILD_CACHE_PRUNE_COMMAND);
     const after = await execAsync('docker system df').then(result => result.stdout).catch(() => '');
     const payload = { success: true, stdout, stderr, before, after };
     audit('admin.repair.cleanup', 'success', JSON.stringify({ stdout, stderr }));

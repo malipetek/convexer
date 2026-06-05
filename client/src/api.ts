@@ -241,7 +241,21 @@ export const api = {
       usage_percent: string;
       mountpoint: string;
     }>;
-    docker_disk_usage: any;
+    primary_disk_usage: {
+      filesystem: string;
+      size: string;
+      used: string;
+      available: string;
+      usage_percent: string;
+      mountpoint: string;
+    } | null;
+    docker_disk_usage: Record<string, {
+      total: string;
+      active: string;
+      size: string;
+      total_size: string;
+      reclaimable: string;
+    }>;
     network_interfaces: Array<{
       name: string;
       addresses: Array<{

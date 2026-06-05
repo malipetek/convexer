@@ -1,0 +1,9 @@
+[Unit]
+Description=Prune Convexer Docker build cache
+Documentation=https://docs.docker.com/reference/cli/docker/builder/prune/
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker builder prune -af --filter until=24h

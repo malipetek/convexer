@@ -140,6 +140,9 @@ function ServerStats ()
                     <div className="flex items-center gap-2">
                       <HardDrive className="h-4 w-4 text-muted-foreground" />
                       <span className="font-mono text-xs">{disk.mountpoint}</span>
+                      {serverStats.primary_disk_usage?.mountpoint === disk.mountpoint && (
+                        <Badge variant="outline">Host disk</Badge>
+                      )}
                     </div>
                     <Badge variant={parseInt(disk.usage_percent) > 80 ? 'destructive' : 'secondary'}>
                       {disk.usage_percent}
@@ -255,7 +258,10 @@ function ServerStats ()
               {Object.entries(serverStats.docker_disk_usage).map(([key, value]: [string, any]) => (
                 <div key={key} className="p-3 bg-muted rounded-lg">
                   <div className="text-xs text-muted-foreground mb-1 capitalize">{key.replace('_', ' ')}</div>
-                  <div className="font-mono text-sm">{value.total_size || 'N/A'}</div>
+                  <div className="font-mono text-sm">{value.size || value.total_size || 'N/A'}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Total: {value.total || '0'} · Active: {value.active || '0'}
+                  </div>
                   {value.reclaimable && (
                     <div className="text-xs text-muted-foreground mt-1">Reclaimable: {value.reclaimable}</div>
                   )}
